@@ -1,0 +1,1 @@
+"""Jobot test suite package."""

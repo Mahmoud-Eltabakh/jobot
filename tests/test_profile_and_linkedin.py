@@ -1,0 +1,224 @@
+"""Unit and integration tests for Profile Management, LinkedIn Analysis, and Skill-Driven Scraping."""
+
+import json
+import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session, select
+
+from app.ai.client import MockAIClient
+from app.ai.embeddings import ProfileEmbedder
+from app.ai.linkedin_analyzer import LinkedInProfileAnalyzer
+from app.ai.profile_extractor import ExtractedProfile
+from app.db.database import engine, init_db
+from app.db.models import UserProfile
+from app.db.vector import get_vector_store
+from app.main import app
+from app.scrapers.scheduler import ScraperPipeline
+
+
+@pytest.fixture(autouse=True)
+def setup_db() -> None:
+    init_db()
+
+
+def test_profile_model_and_api():
+    """Test retrieving and updating candidate profile via REST API."""
+    with TestClient(app) as client:
+        # 1. Update Profile via API
+        payload = {
+            "full_name": "Jane Doe",
+            "headline": "Lead Python Engineer & AI Architect",
+            "bio": "Experienced architect specializing in FastAPI and ChromaDB vector search.",
+            "experience_years": 6.5,
+            "target_titles": ["Lead Python Developer", "AI Backend Architect"],
+            "target_locations": ["Remote", "Munich", "Berlin"],
+            "target_salary_min": 95000,
+            "work_preference": "remote_only",
+            "skills": ["Python", "FastAPI", "Docker", "ChromaDB", "Kubernetes", "PostgreSQL"],
+            "active_search_skills": ["Python", "FastAPI", "ChromaDB"],
+            "linkedin_url": "https://www.linkedin.com/in/janedoe",
+        }
+
+        resp = client.post("/api/profile/update", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+        # 2. Get Profile via API
+        get_resp = client.get("/api/profile")
+        assert get_resp.status_code == 200
+        data = get_resp.json()["profile"]
+        assert data["full_name"] == "Jane Doe"
+        assert data["headline"] == "Lead Python Engineer & AI Architect"
+        assert data["experience_years"] == 6.5
+        assert "FastAPI" in data["skills"]
+        assert data["active_search_skills"] == ["Python", "FastAPI", "ChromaDB"]
+        assert data["work_preference"] == "remote_only"
+
+
+@pytest.mark.asyncio
+async def test_profile_embeddings_sync():
+    """Test chunking and ChromaDB embedding synchronization for candidate profile."""
+    profile = ExtractedProfile(
+        full_name="Alex Tech",
+        headline="Senior Backend Engineer",
+        summary="Specialist in microservices and distributed databases.",
+        skills=["Python", "FastAPI", "Docker", "PostgreSQL", "Kafka"],
+        active_search_skills=["Python", "FastAPI"],
+        experience_years=5.0,
+        target_titles=["Senior Backend Engineer", "Python Developer"],
+        target_locations=["Remote", "Germany"],
+        work_preference="remote_first",
+    )
+
+    chunks = ProfileEmbedder.chunk_profile(profile)
+    assert len(chunks) == 3
+    chunk_types = [c["metadata"]["chunk_type"] for c in chunks]
+    assert "summary" in chunk_types
+    assert "skills" in chunk_types
+    assert "experience" in chunk_types
+
+    vector_store = get_vector_store()
+    mock_ai = MockAIClient()
+
+    stored_count = await ProfileEmbedder.embed_and_store_profile(
+        profile=profile,
+        vector_store=vector_store,
+        ai_client=mock_ai,
+    )
+    assert stored_count == 3
+
+
+@pytest.mark.asyncio
+async def test_linkedin_analyzer_text_extraction():
+    """Test AI analysis and extraction of raw LinkedIn profile text."""
+    raw_linkedin = """
+    Jane Developer
+    Senior Python & AI Engineer at TechCorp
+    About: Passionate backend engineer with 7+ years of experience building scalable systems in Python and Docker.
+    Experience:
+    - Senior Backend Engineer at CloudSystems (3 yrs)
+    - Python Developer at DataCorp (4 yrs)
+    Skills: Python, FastAPI, Docker, Kubernetes, PostgreSQL, Playwright
+    """
+
+    mock_ai = MockAIClient(default_response=json.dumps({
+        "full_name": "Jane Developer",
+        "headline": "Senior Python & AI Engineer",
+        "summary": "Passionate backend engineer with 7+ years building scalable systems in Python and Docker.",
+        "skills": ["Python", "FastAPI", "Docker", "Kubernetes", "PostgreSQL", "Playwright"],
+        "active_search_skills": ["Python", "FastAPI", "Docker"],
+        "experience_years": 7.0,
+        "target_titles": ["Senior Python Engineer", "Backend Architect"],
+        "target_locations": ["Remote", "Germany"],
+        "experience_history": [],
+        "education": [],
+    }))
+
+    extracted = await LinkedInProfileAnalyzer.analyze_profile_text(
+        raw_text=raw_linkedin,
+        ai_client=mock_ai,
+        linkedin_url="https://www.linkedin.com/in/janedev",
+    )
+
+    assert extracted.full_name == "Jane Developer"
+    assert "FastAPI" in extracted.skills
+    assert extracted.experience_years == 7.0
+    assert extracted.linkedin_url == "https://www.linkedin.com/in/janedev"
+
+
+def test_skill_driven_scraper_query_builder():
+    """Test generating role + skill query pairs from candidate profile."""
+    with Session(engine) as db_session:
+        # Create test profile in SQLite
+        profile = UserProfile(
+            full_name="Sam Smith",
+            headline="Fullstack Python Engineer",
+            target_titles_json=json.dumps(["Python Developer", "Backend Engineer"]),
+            skills_json=json.dumps(["Python", "FastAPI", "Docker", "SQLModel"]),
+            active_search_skills_json=json.dumps(["FastAPI", "Docker"]),
+            target_locations_json=json.dumps(["Germany", "Remote"]),
+        )
+        db_session.add(profile)
+        db_session.commit()
+
+        queries = ScraperPipeline.build_profile_search_queries(session=db_session)
+        assert len(queries) >= 2
+
+        query_texts = [q[1] for q in queries]
+        # Primary role
+        assert "Python Developer" in query_texts
+        # Role + skill combinations
+        assert any("FastAPI" in q for q in query_texts)
+        assert all(q[2] == "Germany" for q in queries)
+
+
+def test_web_profile_view_and_form_update():
+    """Test rendering the Profile tab and updating via HTML form."""
+    with TestClient(app) as client:
+        # 1. GET Profile View HTML
+        resp = client.get("/web/views/profile")
+        assert resp.status_code == 200
+        assert "Candidate Profile" in resp.text or "General Information" in resp.text
+        assert "LinkedIn Profile Ingestion" in resp.text
+
+        # 2. POST Profile Update Form
+        form_data = {
+            "full_name": "Alice Wonderland",
+            "headline": "Senior Cloud Engineer",
+            "bio": "Building scalable cloud infrastructure.",
+            "experience_years": "5.0",
+            "target_titles": "Cloud Engineer, Platform Engineer",
+            "target_locations": "Remote, Germany",
+            "target_salary_min": "80000",
+            "work_preference": "remote_first",
+            "skills": "Python, AWS, Terraform, Docker",
+            "active_skills": ["Python", "AWS"],
+        }
+
+        post_resp = client.post("/web/profile/update", data=form_data)
+        assert post_resp.status_code == 200
+        assert "Alice Wonderland" in post_resp.text
+        assert "Senior Cloud Engineer" in post_resp.text
+
+
+@pytest.mark.asyncio
+async def test_ai_bio_generation_function():
+    """Verify generate_candidate_bio creates an executive summary using AI/fallback."""
+    from app.ai.profile_extractor import generate_candidate_bio
+    from app.ai.client import MockAIClient
+
+    mock_client = MockAIClient(default_response="Accomplished Senior Cloud Engineer with 5+ years of experience in AWS and Terraform.")
+    
+    bio = await generate_candidate_bio(
+        profile_data={
+            "full_name": "Alice Wonderland",
+            "headline": "Senior Cloud Engineer",
+            "experience_years": 5.0,
+            "target_titles": ["Cloud Engineer"],
+            "skills": ["Python", "AWS", "Terraform"],
+        },
+        ai_client=mock_client,
+    )
+
+    assert "Senior Cloud Engineer" in bio or "Alice Wonderland" in bio
+    assert len(bio) > 20
+
+
+def test_web_profile_generate_bio_route():
+    """Test POST /web/profile/generate-bio route returns updated textarea HTMX partial."""
+    with TestClient(app) as client:
+        resp = client.post(
+            "/web/profile/generate-bio",
+            data={
+                "full_name": "Bob Builder",
+                "headline": "DevOps Architect",
+                "experience_years": "7.0",
+                "target_titles": "DevOps Engineer",
+                "skills": "Kubernetes, Docker, Ansible",
+                "work_preference": "remote_first",
+            },
+        )
+        assert resp.status_code == 200
+        assert "bio-textarea-container" in resp.text
+        assert "Generate Bio with AI" in resp.text
+        assert "Executive summary generated automatically with AI" in resp.text

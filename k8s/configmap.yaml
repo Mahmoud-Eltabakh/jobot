@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobot-config
+  namespace: jobot
+data:
+  JOBOT_ENV: "production"
+  JOBOT_LOG_LEVEL: "INFO"
+  JOBOT_DATA_DIR: "/app/data"
+  JOBOT_AI_PROVIDER: "ollama"
+  JOBOT_OLLAMA_BASE_URL: "http://ollama-service:11434"
+  JOBOT_OLLAMA_MODEL: "qwen2.5:7b"
+  JOBOT_OLLAMA_EMBED_MODEL: "nomic-embed-text"
+  JOBOT_SCRAPER_DEFAULT_INTERVAL_HOURS: "12"

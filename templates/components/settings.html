@@ -1,0 +1,334 @@
+<!-- Settings & AI Configurator Component -->
+<div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl space-y-8 overflow-y-auto custom-scrollbar max-h-[calc(100vh-160px)]">
+    
+    <div>
+        <h2 class="text-base font-bold text-white flex items-center space-x-2">
+            <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            <span>Application Settings & AI Provider Configurator</span>
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">Configure your AI scoring backend, update candidate CV data, and manage search blacklist rules.</p>
+    </div>
+
+    <!-- Section 1: AI Provider Configurator -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">AI Scoring & RAG Provider</h3>
+                <p class="text-[11px] text-slate-500">Choose between local private Ollama models or external cloud API providers.</p>
+            </div>
+            
+            <div id="ai-status-badge">
+                <span class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-mono">Unchecked</span>
+            </div>
+        </div>
+
+        <form id="ai-settings-form" hx-post="/api/settings/ai" hx-target="#ai-save-feedback" class="space-y-4 text-xs">
+            <!-- Provider Selection Radios -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="p-3.5 rounded-lg border cursor-pointer flex items-start space-x-3 transition {% if ai_provider == 'ollama' %}border-emerald-500 bg-emerald-950/20{% else %}border-slate-800 bg-slate-900{% endif %}">
+                    <input type="radio" name="ai_provider" value="ollama" {% if ai_provider == 'ollama' %}checked{% endif %} 
+                           class="mt-0.5 text-emerald-500" onchange="toggleAIFields('ollama')">
+                    <div>
+                        <div class="font-semibold text-slate-200">Local Ollama (100% Offline & Private)</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Zero API costs. Runs locally on your GPU/CPU via Ollama.</div>
+                    </div>
+                </label>
+
+                <label class="p-3.5 rounded-lg border cursor-pointer flex items-start space-x-3 transition {% if ai_provider in ('openai', 'custom') %}border-emerald-500 bg-emerald-950/20{% else %}border-slate-800 bg-slate-900{% endif %}">
+                    <input type="radio" name="ai_provider" value="openai" {% if ai_provider in ('openai', 'custom') %}checked{% endif %} 
+                           class="mt-0.5 text-emerald-500" onchange="toggleAIFields('openai')">
+                    <div>
+                        <div class="font-semibold text-slate-200">Cloud API (OpenAI / Groq / Custom)</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Use external API keys with high-performance cloud models.</div>
+                    </div>
+                </label>
+            </div>
+
+            <!-- Ollama Fields -->
+            <div id="ollama-fields" class="space-y-3 pt-2 {% if ai_provider != 'ollama' %}hidden{% endif %}">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-medium">Ollama Base URL</label>
+                        <input type="text" name="ollama_base_url" value="{{ ollama_base_url }}" 
+                               class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
+                        <div class="text-[10px] text-slate-500 mt-1 flex items-center space-x-2">
+                            <span>Host presets:</span>
+                            <button type="button" onclick="document.querySelector('input[name=ollama_base_url]').value='http://localhost:11434'" class="text-sky-400 hover:underline">localhost</button>
+                            <span>|</span>
+                            <button type="button" onclick="document.querySelector('input[name=ollama_base_url]').value='http://127.0.0.1:11434'" class="text-sky-400 hover:underline">127.0.0.1</button>
+                            <span>|</span>
+                            <button type="button" onclick="document.querySelector('input[name=ollama_base_url]').value='http://host.docker.internal:11434'" class="text-sky-400 hover:underline">host.docker.internal</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-slate-400 font-medium">Ollama LLM Model</label>
+                            <button type="button" 
+                                    hx-get="/api/settings/ollama/models" 
+                                    hx-include="[name='ollama_base_url'], [name='ollama_model']"
+                                    hx-target="#ollama-model-selector-container"
+                                    hx-indicator="#model-fetch-indicator"
+                                    class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center space-x-1 font-medium">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                <span>Fetch Models</span>
+                            </button>
+                        </div>
+
+                        <div id="ollama-model-selector-container">
+                            {% if available_ollama_models %}
+                            <div class="space-y-1">
+                                <select name="ollama_model" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500 text-xs">
+                                    {% for m in available_ollama_models %}
+                                        <option value="{{ m }}" {% if m == ollama_model %}selected{% endif %}>{{ m }}</option>
+                                    {% endfor %}
+                                    {% if ollama_model and ollama_model not in available_ollama_models %}
+                                        <option value="{{ ollama_model }}" selected>{{ ollama_model }} (Custom)</option>
+                                    {% endif %}
+                                </select>
+                                <div class="text-[10px] text-emerald-400 flex items-center justify-between">
+                                    <span>{{ available_ollama_models|length }} model(s) discovered on Ollama host.</span>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="relative">
+                                <input type="text" name="ollama_model" value="{{ ollama_model }}" 
+                                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500" 
+                                       placeholder="e.g. llama3.1:8b, qwen2.5:7b">
+                                <div class="text-[10px] text-slate-500 mt-1">Click <strong>Fetch Models</strong> or <strong>Test Connection</strong> to discover installed models.</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div id="model-fetch-indicator" class="htmx-indicator text-[10px] text-sky-400 mt-1 animate-pulse">
+                            Connecting to Ollama host and fetching models...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OpenAI / Cloud Fields -->
+            <div id="openai-fields" class="space-y-3 pt-2 {% if ai_provider == 'ollama' %}hidden{% endif %}">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-medium">API Key</label>
+                        <input type="password" name="openai_api_key" value="{{ openai_api_key }}" placeholder="sk-..." 
+                               class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-medium">Model Name</label>
+                        <input type="text" name="openai_model" value="{{ openai_model }}" 
+                               class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500" placeholder="e.g. gpt-4o-mini">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center justify-between pt-3 border-t border-slate-800">
+                <div class="flex items-center space-x-3">
+                    <button type="button" 
+                            hx-post="/api/settings/test-ai" 
+                            hx-include="#ai-settings-form"
+                            hx-target="#ai-status-badge"
+                            hx-indicator="#ai-test-indicator"
+                            class="px-3.5 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 font-medium transition flex items-center space-x-1.5 shadow-sm active:scale-95">
+                        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span>Test Connection</span>
+                    </button>
+                    <div id="ai-test-indicator" class="htmx-indicator">
+                        <span class="text-xs text-sky-400 animate-pulse font-mono flex items-center space-x-1">
+                            <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+                            <span>Testing connectivity...</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                    <div id="ai-save-feedback"></div>
+                    <button type="submit" 
+                            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition shadow-md shadow-emerald-600/20 active:scale-95">
+                        Save AI Settings
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Section 1.5: AI Scraping & Intelligent Extraction Settings -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">AI-Assisted Scraping & Query Strategy</h3>
+                <p class="text-[11px] text-slate-500">Enable LLM-based Boolean search query generation and dynamic HTML/DOM job extraction.</p>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 font-mono">Active</span>
+        </div>
+
+        <div class="text-xs text-slate-300 space-y-2">
+            <div class="flex items-start space-x-2">
+                <span class="text-emerald-400 font-bold">✓</span>
+                <span><strong>AI Query Strategist:</strong> Formulates multi-platform Boolean search strings pairing candidate target roles and active skills.</span>
+            </div>
+            <div class="flex items-start space-x-2">
+                <span class="text-emerald-400 font-bold">✓</span>
+                <span><strong>Dynamic AI DOM Extractor:</strong> Extracts salary ranges, remote flexibility, and required tech stacks from unstructured web pages without brittle CSS selectors.</span>
+            </div>
+            <div class="flex items-start space-x-2">
+                <span class="text-emerald-400 font-bold">✓</span>
+                <span><strong>Spam & Promotional Filter:</strong> Automatically identifies and discards non-job ad listings before SQLite ingestion.</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 1.9: Scoring Engine Calibration & Parameter Scales -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Scoring Engine Calibration & Fine-Tuning Scales</h3>
+                <p class="text-[11px] text-slate-500">Fine-tune the relative scale/weight of each normalized scoring parameter used in candidate-to-job matching.</p>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded bg-purple-950 border border-purple-800 text-purple-300 font-mono">100% Normalized</span>
+        </div>
+
+        <form id="scoring-scales-form" hx-post="/api/settings/scoring-weights" hx-target="#scales-save-feedback" class="space-y-4 text-xs">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Skills Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">1. Profile Skills Match Scale</label>
+                        <span id="badge-weight-skills" class="font-mono text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/80">{{ weight_skills }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Normalized ratio of matched skills relative to candidate profile skills.</p>
+                    <input type="range" name="weight_skills" min="0" max="100" value="{{ weight_skills }}" 
+                           oninput="document.getElementById('badge-weight-skills').innerText = this.value"
+                           class="w-full accent-emerald-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Title & Seniority Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">2. Target Title & Seniority Scale</label>
+                        <span id="badge-weight-title" class="font-mono text-sky-400 font-bold bg-sky-950/80 px-2 py-0.5 rounded border border-sky-800/80">{{ weight_title }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Alignment between candidate target job titles and requested experience seniority.</p>
+                    <input type="range" name="weight_title" min="0" max="100" value="{{ weight_title }}" 
+                           oninput="document.getElementById('badge-weight-title').innerText = this.value"
+                           class="w-full accent-sky-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Workplace & Location Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">3. Workplace & Location Scale</label>
+                        <span id="badge-weight-location" class="font-mono text-indigo-400 font-bold bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-800/80">{{ weight_location }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Remote flexibility and target geographical location matching ratio.</p>
+                    <input type="range" name="weight_location" min="0" max="100" value="{{ weight_location }}" 
+                           oninput="document.getElementById('badge-weight-location').innerText = this.value"
+                           class="w-full accent-indigo-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Experience Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">4. Experience Relevance Scale</label>
+                        <span id="badge-weight-experience" class="font-mono text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/80">{{ weight_experience }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Candidate years of experience relative to position requirements benchmark.</p>
+                    <input type="range" name="weight_experience" min="0" max="100" value="{{ weight_experience }}" 
+                           oninput="document.getElementById('badge-weight-experience').innerText = this.value"
+                           class="w-full accent-amber-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Vector RAG Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2 md:col-span-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">5. Vector RAG Semantic Scale</label>
+                        <span id="badge-weight-vector" class="font-mono text-purple-400 font-bold bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/80">{{ weight_vector }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">ChromaDB dense embedding similarity score between candidate CV chunks and job posting.</p>
+                    <input type="range" name="weight_vector" min="0" max="100" value="{{ weight_vector }}" 
+                           oninput="document.getElementById('badge-weight-vector').innerText = this.value"
+                           class="w-full accent-purple-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Save Scales and Rescore Actions -->
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                <div class="flex items-center space-x-3">
+                    <button type="button" 
+                            hx-post="/api/settings/rescore-all" 
+                            hx-target="#scales-save-feedback"
+                            hx-indicator="#rescore-indicator"
+                            class="px-3.5 py-1.5 rounded-lg border border-purple-700/60 bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 font-semibold transition flex items-center space-x-1.5 shadow-sm active:scale-95">
+                        <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span>Rescore All Stored Jobs</span>
+                    </button>
+                    <div id="rescore-indicator" class="htmx-indicator text-[11px] text-purple-400 animate-pulse font-mono">
+                        Recalculating fit scores for all jobs...
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                    <div id="scales-save-feedback"></div>
+                    <button type="submit" 
+                            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition shadow-md shadow-emerald-600/20 active:scale-95">
+                        Save Scoring Scales
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Section 2: Blacklist & Pre-Filtering Rules -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+        <div>
+            <h3 class="text-sm font-semibold text-slate-200">Pre-Filter Blacklist Rules</h3>
+            <p class="text-[11px] text-slate-500">Discard unwanted jobs matching these rules before they consume LLM scoring compute.</p>
+        </div>
+
+        <!-- Add Rule Form -->
+        <form hx-post="/api/settings/rules" hx-target="#view-container" class="flex flex-wrap items-center gap-2.5 text-xs">
+            <select name="rule_type" class="bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200">
+                <option value="title">Title Phrase</option>
+                <option value="keyword">Description Keyword</option>
+                <option value="company">Company Name</option>
+            </select>
+            <input type="text" name="pattern" placeholder="e.g. Senior Lead, C1 German, PHP" required 
+                   class="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200">
+            <button type="submit" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition">
+                Add Rule
+            </button>
+        </form>
+
+        <!-- Rules Table -->
+        <div class="divide-y divide-slate-800/80 border border-slate-800 rounded-lg overflow-hidden text-xs">
+            {% if rules %}
+                {% for r in rules %}
+                <div class="p-2.5 flex items-center justify-between hover:bg-slate-900/50">
+                    <div class="flex items-center space-x-2.5">
+                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">{{ r.rule_type }}</span>
+                        <span class="font-medium text-slate-200 font-mono">{{ r.pattern }}</span>
+                    </div>
+                    <button hx-delete="/api/settings/rules/{{ r.id }}" hx-target="#view-container" 
+                            class="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded hover:bg-rose-950/40 transition">
+                        Delete
+                    </button>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="p-4 text-center text-slate-500 text-xs">No active blacklist rules configured.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleAIFields(provider) {
+        if (provider === 'ollama') {
+            document.getElementById('ollama-fields').classList.remove('hidden');
+            document.getElementById('openai-fields').classList.add('hidden');
+        } else {
+            document.getElementById('ollama-fields').classList.add('hidden');
+            document.getElementById('openai-fields').classList.remove('hidden');
+        }
+    }
+</script>

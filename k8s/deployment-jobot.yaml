@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobot-deployment
+  namespace: jobot
+  labels:
+    app: jobot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jobot
+  template:
+    metadata:
+      labels:
+        app: jobot
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: jobot
+          image: jobot:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: jobot-config
+            - secretRef:
+                name: jobot-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: jobot-data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+      volumes:
+        - name: jobot-data
+          persistentVolumeClaim:
+            claimName: jobot-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobot-service
+  namespace: jobot
+spec:
+  type: NodePort
+  selector:
+    app: jobot
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30800
+      name: http

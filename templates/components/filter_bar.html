@@ -1,0 +1,72 @@
+<!-- Multi-Criteria Sorting & Filtering Bar Component -->
+<form id="filter-form" class="bg-slate-900 border border-slate-800 p-3.5 rounded-xl shadow-md space-y-3"
+      hx-get="/web/views/kanban" hx-target="#view-container" hx-trigger="change, keyup delay:350ms from:#search-input">
+    
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <!-- Live Search Input -->
+        <div class="relative flex-1 min-w-[240px]">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            </span>
+            <input 
+                type="text" 
+                id="search-input"
+                name="q" 
+                placeholder="Search job title, skills, company..." 
+                class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+        </div>
+
+        <!-- Work Model Filter Buttons -->
+        <div class="flex items-center space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+            <label class="cursor-pointer">
+                <input type="radio" name="work_model" value="" checked class="hidden peer">
+                <span class="px-2.5 py-1 rounded-md text-slate-400 peer-checked:bg-slate-800 peer-checked:text-white transition">All</span>
+            </label>
+            <label class="cursor-pointer">
+                <input type="radio" name="work_model" value="remote" class="hidden peer">
+                <span class="px-2.5 py-1 rounded-md text-slate-400 peer-checked:bg-slate-800 peer-checked:text-emerald-400 transition">Remote</span>
+            </label>
+            <label class="cursor-pointer">
+                <input type="radio" name="work_model" value="onsite" class="hidden peer">
+                <span class="px-2.5 py-1 rounded-md text-slate-400 peer-checked:bg-slate-800 peer-checked:text-indigo-400 transition">On-site</span>
+            </label>
+        </div>
+
+        <!-- Source Checkboxes -->
+        <div class="flex items-center space-x-2 text-xs text-slate-300">
+            <select name="source" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500">
+                <option value="all">All Sources</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="stepstone">StepStone</option>
+                <option value="google">Google Jobs</option>
+            </select>
+        </div>
+
+        <!-- Min Fit Score Slider -->
+        <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
+            <span class="text-slate-400 whitespace-nowrap">Min Fit:</span>
+            <input 
+                type="range" 
+                name="min_score" 
+                min="0" 
+                max="90" 
+                step="10" 
+                value="0" 
+                class="w-24 accent-emerald-500 cursor-pointer"
+                oninput="document.getElementById('score-val').innerText = this.value + '%'">
+            <span id="score-val" class="font-mono text-emerald-400 font-semibold w-8">0%</span>
+        </div>
+
+        <!-- Quick Exclusion Toggles -->
+        <div class="flex items-center space-x-3 text-xs text-slate-400">
+            <label class="flex items-center space-x-1.5 cursor-pointer">
+                <input type="checkbox" name="hide_rejected" value="true" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
+                <span>Hide Rejected</span>
+            </label>
+            <label class="flex items-center space-x-1.5 cursor-pointer">
+                <input type="checkbox" name="hide_not_fit" value="true" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
+                <span>Hide Not a Fit</span>
+            </label>
+        </div>
+    </div>
+</form>

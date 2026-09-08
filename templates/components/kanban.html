@@ -1,0 +1,33 @@
+<!-- Kanban Board View Component -->
+<div class="flex-1 flex space-x-3 overflow-x-auto pb-4 custom-scrollbar min-h-[calc(100vh-210px)]"
+     hx-trigger="refreshView from:body" hx-get="/web/views/kanban" hx-include="#filter-form">
+    
+    {% for col in columns %}
+    <div class="flex-1 min-w-[280px] max-w-[320px] bg-slate-900/60 border border-slate-800/80 rounded-xl flex flex-col">
+        <!-- Column Header -->
+        <div class="p-3 border-b border-slate-800/80 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <span class="text-xs font-semibold px-2 py-0.5 rounded-full border {{ col.badge_style }}">
+                    {{ col.label }}
+                </span>
+            </div>
+            <span class="text-xs font-mono font-medium text-slate-500 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
+                {{ col.count }}
+            </span>
+        </div>
+
+        <!-- Cards List -->
+        <div class="flex-1 p-2 space-y-2.5 overflow-y-auto custom-scrollbar max-h-[calc(100vh-280px)]">
+            {% if col.jobs %}
+                {% for job in col.jobs %}
+                    {% include "components/kanban_card.html" %}
+                {% endfor %}
+            {% else %}
+                <div class="h-24 flex items-center justify-center text-xs text-slate-600 border border-dashed border-slate-800/60 rounded-lg">
+                    No jobs
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>

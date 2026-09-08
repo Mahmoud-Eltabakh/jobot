@@ -1,0 +1,14 @@
+<!-- Background Queue Activity Status Widget -->
+<div id="queue-status-widget" class="flex items-center space-x-2 text-xs font-mono">
+    {% if stats.in_progress > 0 or stats.pending > 0 %}
+    <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/80 border border-indigo-700/60 text-indigo-300 shadow-sm animate-pulse">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        <span>Queue: {{ stats.in_progress }} Active &bull; {{ stats.pending }} Pending</span>
+    </div>
+    {% else %}
+    <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <span>Queue: Idle</span>
+    </div>
+    {% endif %}
+</div>

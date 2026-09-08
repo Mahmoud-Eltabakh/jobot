@@ -1,0 +1,331 @@
+<!-- Slide-Over Job Inspector Modal / Drawer Component -->
+<div class="fixed inset-0 z-50 overflow-hidden flex justify-end bg-slate-950/70 backdrop-blur-sm animate-fade-in"
+     onclick="if(event.target === this) document.getElementById('inspector-drawer').innerHTML = ''">
+    
+    <div class="w-full max-w-2xl bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl relative">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-800 flex items-start justify-between bg-slate-950">
+            <div class="space-y-1 max-w-[80%]">
+                <div class="flex items-center space-x-2">
+                    <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">{{ job.source }}</span>
+                    {% if job.is_remote %}
+                        <span class="text-[10px] font-medium px-2 py-0.5 rounded bg-indigo-950 border border-indigo-800 text-indigo-400">Remote</span>
+                    {% endif %}
+                </div>
+                <h2 class="text-lg font-bold text-white leading-snug">{{ job.title }}</h2>
+                <p class="text-xs text-slate-400">{{ job.company }} &bull; {{ job.location }}</p>
+            </div>
+            
+            <button class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition"
+                    onclick="document.getElementById('inspector-drawer').innerHTML = ''">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <!-- Action Bar -->
+        <div class="px-5 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+            <!-- Lifecycle Status Selector -->
+            <form hx-put="/api/jobs/{{ job.id }}/status" hx-swap="none" class="flex items-center space-x-2 text-xs">
+                <span class="text-slate-400 font-medium">Status:</span>
+                <select name="new_status" onchange="this.form.requestSubmit()"
+                        class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:border-emerald-500">
+                    {% for st in statuses %}
+                        <option value="{{ st }}" {% if job.status == st %}selected{% endif %}>{{ st|title }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+
+            <!-- External Direct Apply Link -->
+            <a href="{{ job.url }}" target="_blank" rel="noopener noreferrer"
+               class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition flex items-center space-x-1.5">
+                <span>Open Application</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+            </a>
+        </div>
+
+        <!-- Inspector Sub-Tabs Navigation -->
+        <div class="flex items-center border-b border-slate-800 bg-slate-950/80 px-5 space-x-2 text-xs">
+            <button onclick="switchInspectorTab('overview')" id="tab-btn-overview"
+                    class="py-2.5 px-3 font-semibold text-emerald-400 border-b-2 border-emerald-500 transition">
+                Overview & Match
+            </button>
+            <button onclick="switchInspectorTab('cover-letter')" id="tab-btn-cover-letter"
+                    class="py-2.5 px-3 font-medium text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition">
+                AI Cover Letter
+            </button>
+            <button onclick="switchInspectorTab('tailored-cv')" id="tab-btn-tailored-cv"
+                    class="py-2.5 px-3 font-medium text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition">
+                Tailored Resume
+            </button>
+            <button onclick="switchInspectorTab('notes')" id="tab-btn-notes"
+                    class="py-2.5 px-3 font-medium text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition">
+                Notes ({{ notes|length }})
+            </button>
+        </div>
+
+        <!-- Scrollable Body Content -->
+        <div class="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+            
+            <!-- Tab 1: Overview & Match -->
+            <div id="tab-content-overview" class="space-y-6">
+                <!-- AI Evaluation Card -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+                            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            <span>AI Match Evaluation</span>
+                        </span>
+                        
+                        {% if job.fit_score is not none %}
+                            <span class="text-sm font-extrabold px-2.5 py-0.5 rounded-full border
+                                {% if job.fit_score >= 80 %}text-emerald-400 bg-emerald-950/80 border-emerald-800
+                                {% elif job.fit_score >= 60 %}text-amber-400 bg-amber-950/80 border-amber-800
+                                {% else %}text-slate-400 bg-slate-900 border-slate-700{% endif %}">
+                                {{ job.fit_score }}% Match
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    {% if job.fit_summary %}
+                        <p class="text-xs text-slate-300 leading-relaxed italic border-l-2 border-emerald-500 pl-3">
+                            "{{ job.fit_summary }}"
+                        </p>
+                    {% endif %}
+
+                    <!-- Pros / Matching Strengths -->
+                    {% if pros %}
+                    <div class="space-y-1">
+                        <span class="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">Matching Strengths:</span>
+                        <ul class="space-y-1 text-xs text-slate-300">
+                            {% for pro in pros %}
+                                <li class="flex items-start space-x-1.5">
+                                    <span class="text-emerald-500 font-bold">&check;</span>
+                                    <span>{{ pro }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <!-- Cons / Gaps -->
+                    {% if cons %}
+                    <div class="space-y-1">
+                        <span class="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">Potential Concerns:</span>
+                        <ul class="space-y-1 text-xs text-slate-300">
+                            {% for con in cons %}
+                                <li class="flex items-start space-x-1.5">
+                                    <span class="text-amber-500 font-bold">&bull;</span>
+                                    <span>{{ con }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <!-- Missing Skills Tag Badges -->
+                    {% if missing_skills %}
+                    <div class="space-y-1.5">
+                        <span class="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">Missing Skill Requirements:</span>
+                        <div class="flex flex-wrap gap-1.5">
+                            {% for skill in missing_skills %}
+                                <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-950/50 border border-rose-900/60 text-rose-300">
+                                    {{ skill }}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Full Job Description -->
+                <div class="space-y-2">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Job Description</h3>
+                    <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 leading-relaxed whitespace-pre-line max-h-72 overflow-y-auto custom-scrollbar">
+                        {{ job.description or 'No description provided.' }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: AI Cover Letter -->
+            <div id="tab-content-cover-letter" class="space-y-4 hidden">
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h4 class="text-xs font-bold text-white uppercase tracking-wider">Tailored Cover Letter</h4>
+                            <p class="text-[11px] text-slate-400">Generates a customized cover letter matching this role & company.</p>
+                        </div>
+                        <div id="cover-letter-spinner" class="htmx-indicator">
+                            <span class="text-xs px-2 py-1 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 animate-pulse">Generating Letter...</span>
+                        </div>
+                    </div>
+
+                    <!-- Generate Generator Options -->
+                    <form hx-post="/web/job/{{ job.id }}/cover-letter/generate" 
+                          hx-target="#cover-letter-container"
+                          hx-indicator="#cover-letter-spinner"
+                          class="space-y-3 pt-2 text-xs">
+                        <div class="flex items-center space-x-3">
+                            <div class="flex items-center space-x-1.5">
+                                <span class="text-slate-400">Tone:</span>
+                                <select name="tone" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded p-1.5">
+                                    <option value="professional" {% if cover_letter and cover_letter.tone == 'professional' %}selected{% endif %}>Professional</option>
+                                    <option value="direct" {% if cover_letter and cover_letter.tone == 'direct' %}selected{% endif %}>Direct & Impactful</option>
+                                    <option value="enthusiastic" {% if cover_letter and cover_letter.tone == 'enthusiastic' %}selected{% endif %}>Enthusiastic</option>
+                                    <option value="conversational" {% if cover_letter and cover_letter.tone == 'conversational' %}selected{% endif %}>Conversational</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition flex items-center space-x-1.5 shadow-md shadow-emerald-600/20">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                <span>Generate Cover Letter</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Cover Letter Content Container -->
+                <div id="cover-letter-container" class="space-y-3">
+                    <form hx-post="/web/job/{{ job.id }}/materials/save" hx-swap="none" class="space-y-2">
+                        <input type="hidden" name="material_type" value="cover_letter">
+                        <textarea id="cover-letter-text" name="content_markdown" rows="14" 
+                                  placeholder="Click 'Generate Cover Letter' above to create a tailored letter..."
+                                  class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-emerald-500 custom-scrollbar">{{ cover_letter.content_markdown if cover_letter else '' }}</textarea>
+                        
+                        <div class="flex items-center justify-between pt-1">
+                            <button type="button" onclick="copyText('cover-letter-text', this)"
+                                    class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition flex items-center space-x-1.5">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                <span>Copy to Clipboard</span>
+                            </button>
+
+                            <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-medium text-xs transition">
+                                Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Tab 3: Tailored Resume -->
+            <div id="tab-content-tailored-cv" class="space-y-4 hidden">
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h4 class="text-xs font-bold text-white uppercase tracking-wider">ATS Resume Bullet Points</h4>
+                            <p class="text-[11px] text-slate-400">Align your past experience with keywords and tech stack in this job description.</p>
+                        </div>
+                        <div id="resume-tailor-spinner" class="htmx-indicator">
+                            <span class="text-xs px-2 py-1 rounded bg-indigo-950 text-indigo-400 border border-indigo-800 animate-pulse">Tailoring Bullets...</span>
+                        </div>
+                    </div>
+
+                    <form hx-post="/web/job/{{ job.id }}/tailor-resume/generate"
+                          hx-target="#tailored-resume-container"
+                          hx-indicator="#resume-tailor-spinner"
+                          class="pt-1">
+                        <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/20">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            <span>Tailor Resume Accomplishments</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Tailored Resume Content Container -->
+                <div id="tailored-resume-container" class="space-y-3">
+                    <form hx-post="/web/job/{{ job.id }}/materials/save" hx-swap="none" class="space-y-2">
+                        <input type="hidden" name="material_type" value="tailored_resume">
+                        <textarea id="tailored-resume-text" name="content_markdown" rows="14"
+                                  placeholder="Click 'Tailor Resume Accomplishments' above to generate optimized bullet points..."
+                                  class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-indigo-500 custom-scrollbar">{{ tailored_resume.content_markdown if tailored_resume else '' }}</textarea>
+                        
+                        <div class="flex items-center justify-between pt-1">
+                            <button type="button" onclick="copyText('tailored-resume-text', this)"
+                                    class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition flex items-center space-x-1.5">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                <span>Copy to Clipboard</span>
+                            </button>
+
+                            <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white font-medium text-xs transition">
+                                Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Tab 4: Candidate Notes & Feedback Log -->
+            <div id="tab-content-notes" class="space-y-4 hidden">
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Candidate Notes & Feedback</h3>
+                    
+                    <!-- Add Note Form -->
+                    <form hx-post="/api/jobs/{{ job.id }}/notes" hx-target="#notes-list" class="space-y-2">
+                        <textarea 
+                            name="note_text" 
+                            rows="2" 
+                            placeholder="Add your impression, interview notes, or rejection reasons (helps the AI learn)..."
+                            required
+                            class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"></textarea>
+                        
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2 text-xs">
+                                <span class="text-slate-500">Sentiment:</span>
+                                <select name="sentiment" class="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded px-2 py-1">
+                                    <option value="neutral">Neutral Note</option>
+                                    <option value="positive">Positive / Like</option>
+                                    <option value="negative">Negative / Dislike</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-xs transition">
+                                Save Note
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Notes List -->
+                    <div id="notes-list" class="space-y-2">
+                        {% for n in notes %}
+                            <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200">
+                                <div class="flex justify-between text-slate-400 text-[10px] mb-1">
+                                    <span class="font-medium text-emerald-400 uppercase">{{ n.sentiment }}</span>
+                                    <span>{{ n.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                </div>
+                                {{ n.note_text }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchInspectorTab(tabKey) {
+    const tabs = ['overview', 'cover-letter', 'tailored-cv', 'notes'];
+    tabs.forEach(t => {
+        const content = document.getElementById('tab-content-' + t);
+        const btn = document.getElementById('tab-btn-' + t);
+        if (t === tabKey) {
+            content.classList.remove('hidden');
+            btn.classList.add('text-emerald-400', 'border-emerald-500');
+            btn.classList.remove('text-slate-400', 'border-transparent');
+        } else {
+            content.classList.add('hidden');
+            btn.classList.remove('text-emerald-400', 'border-emerald-500');
+            btn.classList.add('text-slate-400', 'border-transparent');
+        }
+    });
+}
+
+function copyText(elemId, btn) {
+    const text = document.getElementById(elemId).value;
+    navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<span class="text-emerald-400 font-bold">✓ Copied!</span>';
+        setTimeout(() => btn.innerHTML = orig, 2000);
+    });
+}
+</script>
+    </div>
+</div>

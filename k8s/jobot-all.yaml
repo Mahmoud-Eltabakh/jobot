@@ -1,0 +1,195 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jobot
+  labels:
+    app.kubernetes.io/name: jobot
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobot-config
+  namespace: jobot
+data:
+  JOBOT_ENV: "production"
+  JOBOT_LOG_LEVEL: "INFO"
+  JOBOT_DATA_DIR: "/app/data"
+  JOBOT_AI_PROVIDER: "ollama"
+  JOBOT_OLLAMA_BASE_URL: "http://ollama-service:11434"
+  JOBOT_OLLAMA_MODEL: "qwen2.5:7b"
+  JOBOT_OLLAMA_EMBED_MODEL: "nomic-embed-text"
+  JOBOT_SCRAPER_DEFAULT_INTERVAL_HOURS: "12"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jobot-secrets
+  namespace: jobot
+type: Opaque
+stringData:
+  OPENAI_API_KEY: ""
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jobot-data-pvc
+  namespace: jobot
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: jobot
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-deployment
+  namespace: jobot
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "8"
+              memory: "16Gi"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /api/version
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/version
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: jobot
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobot-deployment
+  namespace: jobot
+  labels:
+    app: jobot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jobot
+  template:
+    metadata:
+      labels:
+        app: jobot
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: jobot
+          image: jobot:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: jobot-config
+            - secretRef:
+                name: jobot-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: jobot-data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+      volumes:
+        - name: jobot-data
+          persistentVolumeClaim:
+            claimName: jobot-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobot-service
+  namespace: jobot
+spec:
+  type: NodePort
+  selector:
+    app: jobot
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30800
+      name: http

@@ -1,0 +1,134 @@
+<!-- Data Table View Component -->
+<div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg flex flex-col"
+     hx-trigger="refreshView from:body" hx-get="/web/views/table" hx-include="#filter-form">
+    
+    <div class="overflow-x-auto custom-scrollbar flex-1">
+        <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-950 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800 text-[10px]">
+                <tr>
+                    <th class="py-3 px-4">Status</th>
+                    <th class="py-3 px-4 cursor-pointer hover:text-white" 
+                        hx-get="/web/views/table?sort_by=fit_score&sort_order={% if sort_by == 'fit_score' and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                        hx-target="#view-container" hx-include="#filter-form">
+                        Fit Score {% if sort_by == 'fit_score' %}{% if sort_order == 'desc' %}↓{% else %}↑{% endif %}{% endif %}
+                    </th>
+                    <th class="py-3 px-4">Job Title & Company</th>
+                    <th class="py-3 px-4">Location</th>
+                    <th class="py-3 px-4 cursor-pointer hover:text-white"
+                        hx-get="/web/views/table?sort_by=salary_min&sort_order={% if sort_by == 'salary_min' and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                        hx-target="#view-container" hx-include="#filter-form">
+                        Salary
+                    </th>
+                    <th class="py-3 px-4">Source</th>
+                    <th class="py-3 px-4 cursor-pointer hover:text-white"
+                        hx-get="/web/views/table?sort_by=created_at&sort_order={% if sort_by == 'created_at' and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                        hx-target="#view-container" hx-include="#filter-form">
+                        Date Added
+                    </th>
+                    <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/80">
+                {% if jobs %}
+                    {% for job in jobs %}
+                    <tr class="hover:bg-slate-850/60 transition cursor-pointer group"
+                        hx-get="/web/job/{{ job.id }}/inspect" 
+                        hx-target="#inspector-drawer">
+                        
+                        <!-- Status Badge -->
+                        <td class="py-3 px-4 whitespace-nowrap">
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border
+                                {% if job.status == 'seen' %}border-indigo-800 text-indigo-400 bg-indigo-950/40
+                                {% elif job.status == 'applied' %}border-blue-800 text-blue-400 bg-blue-950/40
+                                {% elif job.status == 'waiting for respond' %}border-cyan-800 text-cyan-400 bg-cyan-950/40
+                                {% elif job.status in ('1. interview', '2. interview', '3. interview') %}border-amber-800 text-amber-400 bg-amber-950/40
+                                {% elif job.status == 'rejected' %}border-rose-800 text-rose-400 bg-rose-950/40
+                                {% else %}border-slate-800 text-slate-400 bg-slate-900/40{% endif %}">
+                                {{ job.status }}
+                            </span>
+                        </td>
+
+                        <!-- Fit Score -->
+                        <td class="py-3 px-4 font-mono font-bold whitespace-nowrap">
+                            {% if job.fit_score is not none %}
+                                {% if job.fit_score >= 80 %}
+                                    <span class="text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full">
+                                        {{ job.fit_score }}%
+                                    </span>
+                                {% elif job.fit_score >= 60 %}
+                                    <span class="text-amber-400 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded-full">
+                                        {{ job.fit_score }}%
+                                    </span>
+                                {% else %}
+                                    <span class="text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">
+                                        {{ job.fit_score }}%
+                                    </span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-slate-500 text-[10px]">--</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Title & Company -->
+                        <td class="py-3 px-4 max-w-xs">
+                            <div class="font-medium text-slate-100 group-hover:text-emerald-400 transition truncate">{{ job.title }}</div>
+                            <div class="text-[11px] text-slate-400 truncate">{{ job.company }}</div>
+                        </td>
+
+                        <!-- Location -->
+                        <td class="py-3 px-4 whitespace-nowrap text-slate-400 text-[11px]">
+                            {{ job.location }}
+                            {% if job.is_remote %}
+                                <span class="ml-1 text-[9px] px-1 py-0.2 rounded bg-indigo-950 text-indigo-400 border border-indigo-900">Remote</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Salary -->
+                        <td class="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-300">
+                            {% if job.salary_min or job.salary_max %}
+                                {% if job.salary_min and job.salary_max %}
+                                    {{ (job.salary_min / 1000)|round|int }}k-{{ (job.salary_max / 1000)|round|int }}k
+                                {% elif job.salary_min %}
+                                    {{ (job.salary_min / 1000)|round|int }}k+
+                                {% endif %}
+                                {{ job.salary_currency or '' }}
+                            {% else %}
+                                <span class="text-slate-600">--</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Source -->
+                        <td class="py-3 px-4 whitespace-nowrap text-[10px] font-mono text-slate-400 uppercase">
+                            {{ job.source }}
+                        </td>
+
+                        <!-- Date Added -->
+                        <td class="py-3 px-4 whitespace-nowrap text-slate-500 text-[11px]">
+                            {{ job.created_at.strftime('%Y-%m-%d') }}
+                        </td>
+
+                        <!-- Actions -->
+                        <td class="py-3 px-4 text-right whitespace-nowrap" onclick="event.stopPropagation()">
+                            <a href="{{ job.url }}" target="_blank" rel="noopener noreferrer"
+                               class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-300 transition">
+                                Apply
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center py-12 text-slate-500 text-xs">
+                            No jobs found matching the selected filters.
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Table Footer -->
+    <div class="p-3 border-t border-slate-800 bg-slate-950 flex justify-between items-center text-xs text-slate-400">
+        <span>Showing {{ jobs|length }} positions</span>
+    </div>
+</div>
