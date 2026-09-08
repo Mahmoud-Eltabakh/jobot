@@ -1,14 +1,16 @@
 """Unit and integration tests for AI Cover Letter Generator & Resume Tailoring Engine."""
 
 import json
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.ai.application_generator import ApplicationGenerator
 from app.ai.client import MockAIClient
+from app.auth.security import hash_password
 from app.db.database import engine, init_db
-from app.db.models import ApplicationMaterial, Job, UserProfile
+from app.db.models import ApplicationMaterial, Job, User, UserProfile
 from app.main import app
 
 
@@ -17,9 +19,19 @@ def setup_db() -> None:
     init_db()
 
 
-def create_sample_job_and_profile(session: Session) -> tuple[Job, UserProfile]:
-    """Helper to create sample job and user profile records in SQLite."""
+def create_sample_job_and_profile(session: Session) -> tuple[Job, UserProfile, User]:
+    """Create a user and records inside that account's ownership boundary."""
+    user = User(
+        email="applications@example.com",
+        password_hash=hash_password("application-test-password"),
+        full_name="Morgan Chase",
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
     job = Job(
+        user_id=user.id,
         title="Senior Python & Backend Engineer",
         company="Fintech Dynamics GmbH",
         location="Frankfurt, Germany",
@@ -36,6 +48,7 @@ def create_sample_job_and_profile(session: Session) -> tuple[Job, UserProfile]:
     session.add(job)
 
     profile = UserProfile(
+        user_id=user.id,
         full_name="Morgan Chase",
         headline="Senior Python Engineer & Cloud Developer",
         bio="Passionate engineer with extensive expertise in distributed systems and FastAPI microservices.",
@@ -49,14 +62,23 @@ def create_sample_job_and_profile(session: Session) -> tuple[Job, UserProfile]:
     session.commit()
     session.refresh(job)
     session.refresh(profile)
-    return job, profile
+    return job, profile, user
+
+
+def login(client: TestClient) -> None:
+    """Authenticate the shared application-test account in the client cookie jar."""
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "applications@example.com", "password": "application-test-password"},
+    )
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_application_generator_cover_letter():
     """Verify generating cover letters with custom tones using AI generator."""
     with Session(engine) as session:
-        job, profile = create_sample_job_and_profile(session)
+        job, profile, user = create_sample_job_and_profile(session)
 
         mock_ai = MockAIClient(default_response="""# Application for Senior Python Engineer
 
@@ -82,16 +104,18 @@ I am writing to express my strong enthusiasm for the Senior Python & Backend Eng
             material_type="cover_letter",
             content_markdown=content,
             tone="enthusiastic",
+            user_id=user.id,
         )
         assert material.id is not None
         assert material.tone == "enthusiastic"
+        assert material.user_id == user.id
 
 
 @pytest.mark.asyncio
 async def test_application_generator_tailored_resume():
     """Verify generating ATS tailored resume bullet points."""
     with Session(engine) as session:
-        job, profile = create_sample_job_and_profile(session)
+        job, profile, user = create_sample_job_and_profile(session)
 
         mock_ai = MockAIClient(default_response="""### Tailored Accomplishments
 - **Architected Scalable FastAPI Services**: Designed distributed backend microservices...
@@ -111,6 +135,7 @@ async def test_application_generator_tailored_resume():
             job_id=job.id,
             material_type="tailored_resume",
             content_markdown=content,
+            user_id=user.id,
         )
         assert material.id is not None
         assert material.material_type == "tailored_resume"
@@ -119,10 +144,12 @@ async def test_application_generator_tailored_resume():
 def test_applications_rest_api():
     """Test REST endpoints for generating and fetching application materials."""
     with Session(engine) as session:
-        job, _ = create_sample_job_and_profile(session)
+        job, _, user = create_sample_job_and_profile(session)
         job_id = job.id
+        user_id = user.id
 
     with TestClient(app) as client:
+        login(client)
         # 1. Generate Cover Letter via API
         gen_resp = client.post(
             f"/api/jobs/{job_id}/cover-letter/generate",
@@ -133,6 +160,10 @@ def test_applications_rest_api():
         assert data["status"] == "ok"
         assert data["material_type"] == "cover_letter"
         material_id = data["material_id"]
+        with Session(engine) as session:
+            material = session.get(ApplicationMaterial, material_id)
+            assert material is not None
+            assert material.user_id == user_id
 
         # 2. Generate Tailored Resume via API
         resume_resp = client.post(f"/api/jobs/{job_id}/tailor-resume/generate")
@@ -157,10 +188,11 @@ def test_applications_rest_api():
 def test_job_inspector_drawer_and_htmx_endpoints():
     """Test rendering the Job Inspector drawer with application tabs and HTMX generation endpoints."""
     with Session(engine) as session:
-        job, _ = create_sample_job_and_profile(session)
+        job, _, _ = create_sample_job_and_profile(session)
         job_id = job.id
 
     with TestClient(app) as client:
+        login(client)
         # 1. GET Inspector HTML
         resp = client.get(f"/web/job/{job_id}/inspect")
         assert resp.status_code == 200

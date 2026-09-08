@@ -1,32 +1,118 @@
 """REST API router for application settings, AI provider testing, blacklist rules, and CV upload."""
 
+import asyncio
+import html
 import json
 import logging
-from typing import Any, Optional
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, Request
+import re
+import shutil
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 
-from app.core.config import get_settings
-from app.db.database import get_session, get_app_setting, set_app_setting
-from app.db.models import AppSettings, FilterRule, UserProfile, utc_now
-from app.ai.client import get_ai_client, OllamaAIClient, OpenAICompatibleClient
+from app.ai.client import OllamaAIClient, OpenAICompatibleClient, get_ai_client
 from app.ai.cv_parser import CVParser
-from app.ai.profile_extractor import extract_profile_from_text, save_profile_to_db
 from app.ai.embeddings import ProfileEmbedder
+from app.ai.profile_extractor import extract_profile_from_text, save_profile_to_db
+from app.auth.dependencies import get_current_user
+from app.core.config import get_settings
+from app.db.database import get_app_setting, get_session, get_user_setting, set_user_setting
+from app.db.models import FilterRule, User, utc_now
+from app.db.ownership import get_user_profile, owned_by_id
 from app.db.vector import get_vector_store
 
 logger = logging.getLogger("jobot.api.settings")
 
-router = APIRouter(prefix="/api/settings", tags=["Settings"])
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["Settings"],
+    dependencies=[Depends(get_current_user)],
+)
+
+REMOTE_HOST_PATTERN = re.compile(r"^[A-Za-z0-9._:-]*$")
+SSH_USER_PATTERN = re.compile(r"^[A-Za-z0-9._-]*$")
+
+
+async def get_tailscale_status() -> dict[str, Any]:
+    """Return local Tailscale status without blocking the web request indefinitely."""
+    executable = shutil.which("tailscale")
+    if not executable:
+        return {"installed": False, "online": False, "hostname": "", "addresses": []}
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            "status",
+            "--json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as error:
+        return {
+            "installed": True,
+            "online": False,
+            "hostname": "",
+            "addresses": [],
+            "error": str(error),
+        }
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=2.5)
+    except TimeoutError:
+        process.kill()
+        await process.communicate()
+        return {
+            "installed": True,
+            "online": False,
+            "hostname": "",
+            "addresses": [],
+            "error": "Status check timed out",
+        }
+
+    if process.returncode != 0:
+        message = stderr.decode("utf-8", errors="replace").strip()
+        return {
+            "installed": True,
+            "online": False,
+            "hostname": "",
+            "addresses": [],
+            "error": message or "Tailscale is offline",
+        }
+
+    try:
+        payload = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "installed": True,
+            "online": False,
+            "hostname": "",
+            "addresses": [],
+            "error": "Invalid Tailscale status response",
+        }
+
+    local_device = payload.get("Self") or {}
+    hostname = str(local_device.get("DNSName") or local_device.get("HostName") or "").rstrip(".")
+    addresses = [str(address) for address in local_device.get("TailscaleIPs") or []]
+    return {
+        "installed": True,
+        "online": bool(local_device.get("Online", payload.get("BackendState") == "Running")),
+        "hostname": hostname,
+        "addresses": addresses,
+    }
 
 
 def render_ollama_model_options_html(models: list[str], current_model: str) -> str:
-    """Generate HTML select dropdown and datalist for Ollama models."""
+    """Generate HTML select dropdown and datalist for Ollama models.
+
+    All model names are HTML-escaped before injection to prevent XSS via
+    malicious Ollama server responses.
+    """
+    safe_current = html.escape(current_model or "")
     if not models:
         return (
             f'<div class="relative">'
-            f'<input type="text" name="ollama_model" value="{current_model}" '
+            f'<input type="text" name="ollama_model" value="{safe_current}" '
             f'class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500" '
             f'placeholder="e.g. llama3.1:8b, qwen2.5:7b">'
             f'<div class="text-[10px] text-amber-400 mt-1">No models detected on Ollama host. Pull a model (e.g. <code>ollama run llama3.1:8b</code>).</div>'
@@ -34,11 +120,11 @@ def render_ollama_model_options_html(models: list[str], current_model: str) -> s
         )
 
     options_html = "".join(
-        f'<option value="{m}" {"selected" if m == current_model else ""}>{m}</option>'
+        f'<option value="{html.escape(m)}" {"selected" if m == current_model else ""}>{html.escape(m)}</option>'
         for m in models
     )
     if current_model and current_model not in models:
-        options_html = f'<option value="{current_model}" selected>{current_model} (Custom)</option>' + options_html
+        options_html = f'<option value="{safe_current}" selected>{safe_current} (Custom)</option>' + options_html
 
     return (
         f'<div class="space-y-1">'
@@ -54,8 +140,8 @@ def render_ollama_model_options_html(models: list[str], current_model: str) -> s
 
 @router.get("/ollama/models")
 async def get_ollama_models(
-    ollama_base_url: Optional[str] = None,
-    current_model: Optional[str] = None,
+    ollama_base_url: str | None = None,
+    current_model: str | None = None,
 ) -> Any:
     """Fetch discovered models from local or host Ollama instance."""
     base_url = (ollama_base_url or get_app_setting("ollama_base_url", "http://localhost:11434")).strip()
@@ -65,45 +151,59 @@ async def get_ollama_models(
 
 
 @router.get("")
-def get_all_settings(session: Session = Depends(get_session)) -> dict[str, Any]:
+def get_all_settings(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Retrieve all current system settings, AI configuration, and filter rules."""
     settings = get_settings()
-    rules = session.exec(select(FilterRule)).all()
-    user_profile = session.exec(select(UserProfile)).first()
+    rules = session.exec(select(FilterRule).where(FilterRule.user_id == current_user.id)).all()
+    user_profile = get_user_profile(session, current_user.id)
 
     return {
-        "ai_provider": get_app_setting("ai_provider", settings.ai_provider),
-        "ollama_base_url": get_app_setting("ollama_base_url", settings.ollama_base_url),
-        "ollama_model": get_app_setting("ollama_model", settings.ollama_model),
-        "openai_model": get_app_setting("openai_model", settings.openai_model),
-        "has_openai_key": bool(get_app_setting("openai_api_key", settings.openai_api_key)),
+        "ai_provider": get_user_setting(session, current_user.id, "ai_provider", get_app_setting("ai_provider", settings.ai_provider)),
+        "ollama_base_url": get_user_setting(session, current_user.id, "ollama_base_url", get_app_setting("ollama_base_url", settings.ollama_base_url)),
+        "ollama_model": get_user_setting(session, current_user.id, "ollama_model", get_app_setting("ollama_model", settings.ollama_model)),
+        "openai_model": get_user_setting(session, current_user.id, "openai_model", get_app_setting("openai_model", settings.openai_model)),
+        "has_openai_key": bool(get_user_setting(session, current_user.id, "openai_api_key", settings.openai_api_key)),
         "rules_count": len(rules),
         "has_profile": user_profile is not None,
+        "remote_access": {
+            "enabled": get_user_setting(session, current_user.id, "tailscale_enabled", settings.tailscale_enabled),
+            "hostname": get_user_setting(session, current_user.id, "tailscale_hostname", settings.tailscale_hostname),
+            "ssh_user": get_user_setting(session, current_user.id, "tailscale_ssh_user", settings.tailscale_ssh_user),
+            "ssh_port": get_user_setting(session, current_user.id, "tailscale_ssh_port", settings.tailscale_ssh_port),
+            "app_port": get_user_setting(session, current_user.id, "tailscale_app_port", settings.tailscale_app_port),
+            "magic_dns": get_user_setting(session, current_user.id, "tailscale_magic_dns", settings.tailscale_magic_dns),
+        },
     }
 
 
 @router.post("/ai")
 def update_ai_settings(
     ai_provider: str = Form(...),
-    ollama_base_url: Optional[str] = Form(None),
-    ollama_model: Optional[str] = Form(None),
-    openai_base_url: Optional[str] = Form(None),
-    openai_model: Optional[str] = Form(None),
-    openai_api_key: Optional[str] = Form(None),
+    ollama_base_url: str | None = Form(None),
+    ollama_model: str | None = Form(None),
+    openai_base_url: str | None = Form(None),
+    openai_model: str | None = Form(None),
+    openai_api_key: str | None = Form(None),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Update active AI provider and model parameters."""
-    set_app_setting("ai_provider", ai_provider.strip().lower())
+    set_user_setting(session, current_user.id, "ai_provider", ai_provider.strip().lower())
     if ollama_base_url:
-        set_app_setting("ollama_base_url", ollama_base_url.strip())
+        set_user_setting(session, current_user.id, "ollama_base_url", ollama_base_url.strip())
     if ollama_model:
-        set_app_setting("ollama_model", ollama_model.strip())
+        set_user_setting(session, current_user.id, "ollama_model", ollama_model.strip())
     if openai_base_url:
-        set_app_setting("openai_base_url", openai_base_url.strip())
+        set_user_setting(session, current_user.id, "openai_base_url", openai_base_url.strip())
     if openai_model:
-        set_app_setting("openai_model", openai_model.strip())
-    if openai_api_key is not None:
-        set_app_setting("openai_api_key", openai_api_key.strip())
+        set_user_setting(session, current_user.id, "openai_model", openai_model.strip())
+    # Blank secret fields mean "keep the stored key" so decrypted credentials
+    # never need to be round-tripped through rendered HTML.
+    if openai_api_key and openai_api_key.strip():
+        set_user_setting(session, current_user.id, "openai_api_key", openai_api_key.strip(), sensitive=True)
 
     logger.info("Updated AI configuration: provider=%s", ai_provider)
     return HTMLResponse(
@@ -113,29 +213,95 @@ def update_ai_settings(
     )
 
 
+@router.post("/remote-access")
+def update_remote_access_settings(
+    tailscale_enabled: bool = Form(False),
+    tailscale_hostname: str = Form(""),
+    tailscale_ssh_user: str = Form(""),
+    tailscale_ssh_port: int = Form(22),
+    tailscale_app_port: int = Form(8000),
+    tailscale_magic_dns: bool = Form(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Persist validated Tailscale SSH connection preferences."""
+    hostname = tailscale_hostname.strip()
+    ssh_user = tailscale_ssh_user.strip()
+    if not REMOTE_HOST_PATTERN.fullmatch(hostname):
+        raise HTTPException(status_code=422, detail="Tailscale hostname contains unsupported characters")
+    if not SSH_USER_PATTERN.fullmatch(ssh_user):
+        raise HTTPException(status_code=422, detail="SSH user contains unsupported characters")
+    if not 1 <= tailscale_ssh_port <= 65535 or not 1 <= tailscale_app_port <= 65535:
+        raise HTTPException(status_code=422, detail="Ports must be between 1 and 65535")
+
+    set_user_setting(session, current_user.id, "tailscale_enabled", tailscale_enabled)
+    set_user_setting(session, current_user.id, "tailscale_hostname", hostname)
+    set_user_setting(session, current_user.id, "tailscale_ssh_user", ssh_user)
+    set_user_setting(session, current_user.id, "tailscale_ssh_port", tailscale_ssh_port)
+    set_user_setting(session, current_user.id, "tailscale_app_port", tailscale_app_port)
+    set_user_setting(session, current_user.id, "tailscale_magic_dns", tailscale_magic_dns)
+
+    return HTMLResponse(
+        '<span class="text-xs text-emerald-400 font-semibold">Tailscale SSH settings saved.</span>'
+    )
+
+
+@router.get("/tailscale/status")
+async def tailscale_status() -> HTMLResponse:
+    """Render a compact status badge for the local Tailscale client."""
+    status_details = await get_tailscale_status()
+    if not status_details["installed"]:
+        return HTMLResponse(
+            '<span class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-mono">Not installed</span>'
+        )
+
+    if not status_details["online"]:
+        error = html.escape(str(status_details.get("error") or "Offline"))
+        return HTMLResponse(
+            f'<span class="text-xs px-2.5 py-1 rounded-full bg-amber-950 border border-amber-800 text-amber-300 font-mono" title="{error}">Offline</span>'
+        )
+
+    hostname = html.escape(str(status_details.get("hostname") or "Connected"))
+    addresses = ", ".join(html.escape(address) for address in status_details.get("addresses") or [])
+    detail = f"{hostname} | {addresses}" if addresses else hostname
+    return HTMLResponse(
+        '<div class="text-right">'
+        '<span class="text-xs px-2.5 py-1 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-300 font-mono">Connected</span>'
+        f'<div class="text-[10px] text-slate-500 mt-1 font-mono">{detail}</div>'
+        '</div>'
+    )
+
+
 @router.post("/test-ai")
 async def test_ai_connection(
-    ai_provider: Optional[str] = Form(None),
-    ollama_base_url: Optional[str] = Form(None),
-    ollama_model: Optional[str] = Form(None),
-    openai_base_url: Optional[str] = Form(None),
-    openai_model: Optional[str] = Form(None),
-    openai_api_key: Optional[str] = Form(None),
+    ai_provider: str | None = Form(None),
+    ollama_base_url: str | None = Form(None),
+    ollama_model: str | None = Form(None),
+    openai_base_url: str | None = Form(None),
+    openai_model: str | None = Form(None),
+    openai_api_key: str | None = Form(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Test connectivity of the specified or configured AI provider."""
-    provider = (ai_provider or get_app_setting("ai_provider", "ollama")).strip().lower()
+    model = ""
+    provider = (ai_provider or get_user_setting(session, current_user.id, "ai_provider", "ollama")).strip().lower()
 
     if provider == "ollama":
         base_url = (ollama_base_url or get_app_setting("ollama_base_url", "http://localhost:11434")).strip()
         model = (ollama_model or get_app_setting("ollama_model", "llama3.1:8b")).strip()
         client = OllamaAIClient(base_url=base_url, model=model)
     elif provider in ("openai", "custom"):
-        api_key = (openai_api_key if openai_api_key is not None else get_app_setting("openai_api_key", "")).strip()
+        api_key = (
+            openai_api_key.strip()
+            if openai_api_key and openai_api_key.strip()
+            else get_user_setting(session, current_user.id, "openai_api_key", "")
+        )
         base_url = (openai_base_url or get_app_setting("openai_base_url", "https://api.openai.com/v1")).strip()
         model = (openai_model or get_app_setting("openai_model", "gpt-4o-mini")).strip()
         client = OpenAICompatibleClient(api_key=api_key, base_url=base_url, model=model)
     else:
-        client = get_ai_client()
+        client = get_ai_client(session, current_user.id)
 
     details = await client.check_health_details()
 
@@ -175,9 +341,11 @@ async def create_filter_rule(
     pattern: str = Form(...),
     is_regex: bool = Form(False),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Add a new blacklist FilterRule and re-render the settings view."""
     rule = FilterRule(
+        user_id=current_user.id,
         rule_type=rule_type.strip().lower(),
         pattern=pattern.strip(),
         is_regex=is_regex,
@@ -188,10 +356,6 @@ async def create_filter_rule(
     session.commit()
     logger.info("Created FilterRule: type=%s, pattern='%s'", rule.rule_type, rule.pattern)
 
-    # Return refreshed settings view
-    from app.web.routes import get_settings_view
-    from starlette.requests import Request
-    # HTMX swap response
     return HTMLResponse(
         headers={"HX-Redirect": "/"}
     )
@@ -201,9 +365,10 @@ async def create_filter_rule(
 async def delete_filter_rule(
     rule_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Delete a blacklist FilterRule."""
-    rule = session.get(FilterRule, rule_id)
+    rule = owned_by_id(session, FilterRule, rule_id, current_user.id)
     if rule:
         session.delete(rule)
         session.commit()
@@ -215,6 +380,7 @@ async def delete_filter_rule(
 async def upload_cv_document(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Upload resume, extract text & structured profile, and store embeddings."""
     content = await file.read()
@@ -224,9 +390,11 @@ async def upload_cv_document(
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
 
-    ai_client = get_ai_client()
+    ai_client = get_ai_client(session, current_user.id)
     extracted_profile = await extract_profile_from_text(raw_text, ai_client)
-    user_profile = save_profile_to_db(extracted_profile, raw_text, session, source_type="cv")
+    user_profile = save_profile_to_db(
+        extracted_profile, raw_text, session, source_type="cv", user_id=current_user.id
+    )
 
     # Embed and sync into ChromaDB
     vector_store = get_vector_store()
@@ -243,18 +411,29 @@ def update_scoring_weights(
     weight_location: float = Form(10.0),
     weight_experience: float = Form(5.0),
     weight_vector: float = Form(20.0),
+    weight_history_skills: float = Form(10.0),
+    weight_education: float = Form(5.0),
+    weight_projects: float = Form(10.0),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Update fine-tuned scoring weights for job match evaluation."""
-    set_app_setting("weight_skills", max(0.0, weight_skills))
-    set_app_setting("weight_title", max(0.0, weight_title))
-    set_app_setting("weight_location", max(0.0, weight_location))
-    set_app_setting("weight_experience", max(0.0, weight_experience))
-    set_app_setting("weight_vector", max(0.0, weight_vector))
+    weights = {
+        "weight_skills": weight_skills,
+        "weight_title": weight_title,
+        "weight_location": weight_location,
+        "weight_experience": weight_experience,
+        "weight_vector": weight_vector,
+        "weight_history_skills": weight_history_skills,
+        "weight_education": weight_education,
+        "weight_projects": weight_projects,
+    }
+    for key, value in weights.items():
+        set_user_setting(session, current_user.id, key, max(0.0, value))
 
     logger.info(
-        "Updated scoring weights: skills=%s, title=%s, location=%s, exp=%s, vec=%s",
-        weight_skills, weight_title, weight_location, weight_experience, weight_vector
+        "Updated scoring weights: skills=%s, title=%s, location=%s, exp=%s, vec=%s, history_skills=%s, education=%s, projects=%s",
+        weight_skills, weight_title, weight_location, weight_experience, weight_vector, weight_history_skills, weight_education, weight_projects
     )
 
     return HTMLResponse(
@@ -267,11 +446,14 @@ def update_scoring_weights(
 @router.post("/rescore-all")
 async def rescore_all_jobs_endpoint(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Rescore all stored jobs in database using updated scoring weights."""
     from app.ai.evaluator import JobEvaluator
-    ai_client = get_ai_client()
-    count = await JobEvaluator.rescore_all_jobs(session=session, ai_client=ai_client)
+    ai_client = get_ai_client(session, current_user.id)
+    count = await JobEvaluator.rescore_all_jobs(
+        session=session, ai_client=ai_client, user_id=current_user.id
+    )
     return HTMLResponse(
         f'<span class="text-xs text-emerald-400 font-semibold flex items-center space-x-1 animate-fade-in">'
         f'<svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'

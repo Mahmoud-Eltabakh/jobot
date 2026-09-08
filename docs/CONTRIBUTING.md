@@ -69,6 +69,7 @@ Jobot/
 │   │   └── vector.py        # ChromaDB collections & similarity search
 │   ├── scrapers/            # Scraper integrations (JobSpy, StepStone Playwright)
 │   ├── ai/                  # AI matching, scoring prompt templates & RAG
+│   ├── api/settings.py      # AI, scoring, blacklist & Tailscale preference endpoints
 │   └── web/                 # FastAPI routes, Jinja2 templates & HTMX components
 ├── data/                    # Persistent SQLite database & ChromaDB files (gitignored)
 ├── docs/                    # User manual and documentation
@@ -94,7 +95,14 @@ pytest
 
 # Run specific test file
 pytest tests/test_db.py -v
+
+# Run full test suite with in-memory database to avoid corrupting local data
+pytest
 ```
+
+### Security & Functional Testing
+- **In-Memory Testing**: The test suite automatically runs against an in-memory database by forcing `DATABASE_URL="sqlite:///:memory:"` in `conftest.py`.
+- **Security Tests**: All PRs modifying authentication, queue ingestion, or AI parsing must include tests verifying error resilience and boundary enforcement.
 
 ### Code Formatting & Linting
 We use Ruff for linting and code formatting:
@@ -105,6 +113,18 @@ ruff check .
 # Format code
 ruff format .
 ```
+
+### Comment Coverage
+
+For new or substantially modified source modules, target approximately **20–30% meaningful comment coverage** across non-blank source lines. This is a module-level readability target, not a rigid quota for every function.
+
+Comments that count toward the target include:
+
+- Module, class, and function docstrings that document behavior or contracts.
+- Explanations of non-obvious control flow, invariants, security boundaries, failure handling, and external-service constraints.
+- Short section comments that make a complex operation easier to scan.
+
+Avoid comments that simply translate code into English, repeat names, describe obvious assignments, or exist only to increase the percentage. When modifying an existing file, improve comments around the changed behavior without reformatting or commenting unrelated areas.
 
 ---
 
@@ -119,8 +139,16 @@ ruff format .
 3. **Scraper Guidelines**:
    - Always implement human-like delays (2-5s) and handle anti-bot headers.
    - Always run raw scraped jobs through the **Title & Keyword Pre-Filter Pipeline** before calling LLM scoring.
-4. **Interactive Decisions**:
+4. **Security & Data Isolation**:
+   - Every new FastAPI endpoint returning or modifying user data **must** validate the resource against `owned_by_id(current_user.id)`.
+   - Never expose raw credentials (like `li_at` cookies) in JSON responses.
+5. **Interactive Decisions**:
    - Maintain the developer decision-making protocol. Any structural or architectural changes must be documented in `.planning/`.
+5. **Remote Access Integrations**:
+   - Keep Tailscale and SSH administration outside the FastAPI process. The web UI may detect status and persist validated connection preferences, but must not invoke privileged connect/disconnect operations.
+   - Bound subprocess status checks with a timeout and invoke executables without `shell=True`.
+   - Validate any hostname, username, or port interpolated into displayed command guidance.
+   - Cover Settings rendering and persistence in `tests/test_web_routes.py`.
 
 ---
 

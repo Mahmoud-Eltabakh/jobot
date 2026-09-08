@@ -1,15 +1,17 @@
 """REST API endpoints for generating and managing tailored application materials."""
 
 import logging
-from typing import Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.ai.application_generator import ApplicationGenerator
-from app.ai.client import get_ai_client
+from app.auth.dependencies import get_current_user
 from app.db.database import get_session
-from app.db.models import ApplicationMaterial, Job, UserProfile, utc_now
+from app.db.models import ApplicationMaterial, Job, User, UserProfile, utc_now
+from app.db.ownership import get_user_profile, owned_by_id
 
 logger = logging.getLogger("jobot.api.applications")
 
@@ -20,28 +22,32 @@ class GenerateCoverLetterRequest(BaseModel):
     """Payload for generating tailored cover letter."""
 
     tone: str = "professional"  # professional, enthusiastic, direct, conversational
-    custom_instructions: Optional[str] = None
+    custom_instructions: str | None = None
 
 
 class SaveMaterialRequest(BaseModel):
     """Payload for updating or saving application material content."""
 
     content_markdown: str
-    tone: Optional[str] = "professional"
+    tone: str | None = "professional"
 
 
 @router.get("/{job_id}/materials", response_model=dict[str, Any])
 async def get_job_materials(
     job_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Fetch all saved application materials for a job."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     materials = session.exec(
-        select(ApplicationMaterial).where(ApplicationMaterial.job_id == job_id)
+        select(ApplicationMaterial).where(
+            ApplicationMaterial.job_id == job_id,
+            ApplicationMaterial.user_id == current_user.id,
+        )
     ).all()
 
     return {
@@ -66,13 +72,14 @@ async def generate_cover_letter(
     job_id: int,
     payload: GenerateCoverLetterRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Generate and persist an AI tailored cover letter for the given job."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    user_profile = session.exec(select(UserProfile)).first()
+    user_profile = get_user_profile(session, current_user.id, decrypt=True)
     if not user_profile:
         user_profile = UserProfile()
 
@@ -89,6 +96,7 @@ async def generate_cover_letter(
         material_type="cover_letter",
         content_markdown=content,
         tone=payload.tone,
+        user_id=current_user.id,
     )
 
     return {
@@ -105,13 +113,14 @@ async def generate_cover_letter(
 async def generate_tailored_resume(
     job_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Generate and persist tailored resume bullet points for the given job."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    user_profile = session.exec(select(UserProfile)).first()
+    user_profile = get_user_profile(session, current_user.id, decrypt=True)
     if not user_profile:
         user_profile = UserProfile()
 
@@ -126,6 +135,7 @@ async def generate_tailored_resume(
         material_type="tailored_resume",
         content_markdown=content,
         tone="professional",
+        user_id=current_user.id,
     )
 
     return {
@@ -142,9 +152,10 @@ async def update_material(
     material_id: int,
     payload: SaveMaterialRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Update existing application material content."""
-    material = session.get(ApplicationMaterial, material_id)
+    material = owned_by_id(session, ApplicationMaterial, material_id, current_user.id)
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
 

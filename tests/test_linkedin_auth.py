@@ -2,13 +2,8 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
 
-from app.ai.client import MockAIClient
-from app.ai.linkedin_analyzer import LinkedInProfileAnalyzer
-from app.db.database import engine, init_db
-from app.db.models import UserProfile
-from app.main import app
+from app.db.database import init_db
 from app.scrapers.linkedin_auth import LinkedInAuthManager
 
 
@@ -30,32 +25,29 @@ async def test_linkedin_auth_manager_validation():
     assert valid is False
 
 
-def test_linkedin_sync_api_endpoint():
+def test_linkedin_sync_api_endpoint(authenticated_client: TestClient):
     """Test POST /api/profile/linkedin/sync endpoint with li_at cookie and raw text."""
-    with TestClient(app) as client:
-        # 1. Missing URL
-        resp_bad = client.post("/api/profile/linkedin/sync", json={"linkedin_url": ""})
-        assert resp_bad.status_code == 400
+    # Missing URL still exercises authenticated request validation.
+    resp_bad = authenticated_client.post("/api/profile/linkedin/sync", json={"linkedin_url": ""})
+    assert resp_bad.status_code == 400
 
-        # 2. Sync with li_at cookie payload structure
-        sync_resp = client.post(
-            "/api/profile/linkedin/sync",
-            json={
-                "linkedin_url": "https://www.linkedin.com/in/testuser",
-                "session_cookie": "sample_li_at_cookie_val",
-                "raw_text_override": "Jane Engineer\nSenior Python Engineer\nSkills: Python, FastAPI, Docker",
-            },
-        )
-        assert sync_resp.status_code == 200
-        data = sync_resp.json()
-        assert data["status"] == "ok"
-        assert "Jane Engineer" in data["full_name"]
+    sync_resp = authenticated_client.post(
+        "/api/profile/linkedin/sync",
+        json={
+            "linkedin_url": "https://www.linkedin.com/in/testuser",
+            "session_cookie": "sample_li_at_cookie_val",
+            "raw_text_override": "Jane Engineer\nSenior Python Engineer\nSkills: Python, FastAPI, Docker",
+        },
+    )
+    assert sync_resp.status_code == 200
+    data = sync_resp.json()
+    assert data["status"] == "ok"
+    assert "Jane Engineer" in data["full_name"]
 
 
-def test_profile_tab_linkedin_cookie_form():
+def test_profile_tab_linkedin_cookie_form(authenticated_client: TestClient):
     """Test Profile web view renders LinkedIn li_at cookie authentication fields."""
-    with TestClient(app) as client:
-        resp = client.get("/web/views/profile")
-        assert resp.status_code == 200
-        assert "li_at" in resp.text
-        assert "LinkedIn Profile URL" in resp.text
+    resp = authenticated_client.get("/web/views/profile")
+    assert resp.status_code == 200
+    assert "li_at" in resp.text
+    assert "LinkedIn Profile URL" in resp.text

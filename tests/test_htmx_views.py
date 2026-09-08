@@ -1,13 +1,13 @@
 """Tests for HTMX partial views (Kanban board, Table view, Job Inspector)."""
 
 import json
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.db.database import engine, init_db
-from app.db.models import Job, JobStatus, JobStatusHistory
-from app.main import app
+from app.db.models import Job, JobStatus
 
 
 @pytest.fixture(autouse=True)
@@ -15,10 +15,11 @@ def setup_db() -> None:
     init_db()
 
 
-def test_kanban_view() -> None:
+def test_kanban_view(authenticated_client: TestClient, authenticated_user: dict) -> None:
     """Verify /web/views/kanban renders all 8 columns and job cards."""
     with Session(engine) as session:
         job = Job(
+            user_id=authenticated_user["id"],
             source="linkedin",
             title="Senior Python Architect",
             company="CloudTech",
@@ -34,20 +35,20 @@ def test_kanban_view() -> None:
         session.add(job)
         session.commit()
 
-    with TestClient(app) as client:
-        resp = client.get("/web/views/kanban")
-        assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-        assert "New Matches" in resp.text
-        assert "Applied" in resp.text
-        assert "Senior Python Architect" in resp.text
-        assert "92%" in resp.text
+    resp = authenticated_client.get("/web/views/kanban")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "NEW" in resp.text
+    assert "Applied" in resp.text
+    assert "Senior Python Architect" in resp.text
+    assert "92%" in resp.text
 
 
-def test_table_view() -> None:
+def test_table_view(authenticated_client: TestClient, authenticated_user: dict) -> None:
     """Verify /web/views/table renders tabular rows."""
     with Session(engine) as session:
         job = Job(
+            user_id=authenticated_user["id"],
             source="stepstone",
             title="FastAPI Backend Engineer",
             company="EuroSoft",
@@ -60,18 +61,27 @@ def test_table_view() -> None:
         session.add(job)
         session.commit()
 
-    with TestClient(app) as client:
-        resp = client.get("/web/views/table")
-        assert resp.status_code == 200
-        assert "<table" in resp.text
-        assert "FastAPI Backend Engineer" in resp.text
-        assert "EuroSoft" in resp.text
+    resp = authenticated_client.get("/web/views/table")
+    assert resp.status_code == 200
+    assert "<table" in resp.text
+    assert "FastAPI Backend Engineer" in resp.text
+    assert "EuroSoft" in resp.text
 
 
-def test_job_inspector() -> None:
+def test_queue_poll_replaces_only_its_own_panel(authenticated_client: TestClient) -> None:
+    """Queue polling must not replace the shared navigation target."""
+    response = authenticated_client.get("/web/views/queue")
+
+    assert response.status_code == 200
+    assert 'hx-target="this"' in response.text
+    assert 'hx-sync="this:replace"' in response.text
+
+
+def test_job_inspector(authenticated_client: TestClient, authenticated_user: dict) -> None:
     """Verify /web/job/{id}/inspect renders detail drawer."""
     with Session(engine) as session:
         job = Job(
+            user_id=authenticated_user["id"],
             source="google",
             title="Fullstack AI Developer",
             company="DeepMind Labs",
@@ -91,19 +101,19 @@ def test_job_inspector() -> None:
         session.refresh(job)
         job_id = job.id
 
-    with TestClient(app) as client:
-        resp = client.get(f"/web/job/{job_id}/inspect")
-        assert resp.status_code == 200
-        assert "Fullstack AI Developer" in resp.text
-        assert "FastAPI expertise" in resp.text
-        assert "Rust" in resp.text
-        assert "Timezone offset" in resp.text
+    resp = authenticated_client.get(f"/web/job/{job_id}/inspect")
+    assert resp.status_code == 200
+    assert "Fullstack AI Developer" in resp.text
+    assert "FastAPI expertise" in resp.text
+    assert "Rust" in resp.text
+    assert "Timezone offset" in resp.text
 
 
-def test_update_status_and_add_notes() -> None:
+def test_update_status_and_add_notes(authenticated_client: TestClient, authenticated_user: dict) -> None:
     """Verify updating job status and posting candidate notes."""
     with Session(engine) as session:
         job = Job(
+            user_id=authenticated_user["id"],
             source="linkedin",
             title="DevOps Engineer",
             company="InfraCorp",
@@ -117,20 +127,18 @@ def test_update_status_and_add_notes() -> None:
         session.refresh(job)
         job_id = job.id
 
-    with TestClient(app) as client:
-        # Update status
-        resp_status = client.put(
-            f"/api/jobs/{job_id}/status",
-            data={"new_status": "applied", "notes": "Applied on company careers portal"},
-        )
-        assert resp_status.status_code == 200
-        assert resp_status.headers.get("HX-Trigger") == "refreshView"
+    # Exercise both mutations through the same authenticated browser session.
+    resp_status = authenticated_client.put(
+        f"/api/jobs/{job_id}/status",
+        data={"new_status": "applied", "notes": "Applied on company careers portal"},
+    )
+    assert resp_status.status_code == 200
+    assert resp_status.headers.get("HX-Trigger") == "refreshView"
 
-        # Add candidate note
-        resp_note = client.post(
-            f"/api/jobs/{job_id}/notes",
-            data={"note_text": "Spoke with recruiter Sarah. Next round scheduled for Tuesday.", "sentiment": "positive"},
-        )
-        assert resp_note.status_code == 200
-        assert "Spoke with recruiter Sarah" in resp_note.text
-        assert "positive" in resp_note.text.lower()
+    resp_note = authenticated_client.post(
+        f"/api/jobs/{job_id}/notes",
+        data={"note_text": "Spoke with recruiter Sarah. Next round scheduled for Tuesday.", "sentiment": "positive"},
+    )
+    assert resp_note.status_code == 200
+    assert "Spoke with recruiter Sarah" in resp_note.text
+    assert "positive" in resp_note.text.lower()

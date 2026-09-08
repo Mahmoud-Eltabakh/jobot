@@ -3,7 +3,8 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
@@ -26,7 +27,7 @@ class VectorStore:
         COLLECTION_USER_FEEDBACK,
     }
 
-    def __init__(self, persist_dir: Optional[str] = None) -> None:
+    def __init__(self, persist_dir: str | None = None) -> None:
         """Initialize ChromaDB PersistentClient."""
         settings = get_settings()
         self.persist_dir = persist_dir or settings.chroma_dir
@@ -51,8 +52,8 @@ class VectorStore:
         collection_name: str,
         ids: list[str],
         documents: list[str],
-        metadatas: Optional[list[dict[str, Any]]] = None,
-        embeddings: Optional[list[list[float]]] = None,
+        metadatas: list[dict[str, Any]] | None = None,
+        embeddings: list[list[float]] | None = None,
     ) -> None:
         """Insert or update documents in the specified collection."""
         collection = self.get_or_create_collection(collection_name)
@@ -72,10 +73,10 @@ class VectorStore:
     def query_similar(
         self,
         collection_name: str,
-        query_texts: Optional[list[str]] = None,
-        query_embeddings: Optional[list[list[float]]] = None,
+        query_texts: list[str] | None = None,
+        query_embeddings: list[list[float]] | None = None,
         n_results: int = 5,
-        where: Optional[dict[str, Any]] = None,
+        where: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Query collection for semantically similar documents."""
         collection = self.get_or_create_collection(collection_name)
@@ -112,10 +113,10 @@ class VectorStore:
         self.get_or_create_collection(collection_name)
 
 
-_vector_store_instance: Optional[VectorStore] = None
+_vector_store_instance: VectorStore | None = None
 
 
-def get_vector_store(persist_dir: Optional[str] = None) -> VectorStore:
+def get_vector_store(persist_dir: str | None = None) -> VectorStore:
     """Return shared or new VectorStore instance."""
     global _vector_store_instance
     if _vector_store_instance is None or persist_dir is not None:

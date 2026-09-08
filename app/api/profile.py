@@ -2,17 +2,20 @@
 
 import json
 import logging
-from typing import Any, Optional
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.ai.client import get_ai_client
 from app.ai.embeddings import ProfileEmbedder
 from app.ai.linkedin_analyzer import LinkedInProfileAnalyzer
 from app.ai.profile_extractor import ExtractedProfile, generate_candidate_bio
+from app.auth.dependencies import get_current_user
 from app.db.database import get_session
-from app.db.models import UserProfile, utc_now
+from app.db.models import User, UserProfile, utc_now
+from app.db.ownership import encrypt_profile, get_user_profile
 from app.db.vector import get_vector_store
 
 logger = logging.getLogger("jobot.api.profile")
@@ -24,30 +27,33 @@ class ProfileUpdateRequest(BaseModel):
     """Payload for updating candidate profile details."""
 
     full_name: str
-    headline: Optional[str] = None
-    bio: Optional[str] = None
+    headline: str | None = None
+    bio: str | None = None
     experience_years: float = 0.0
     target_titles: list[str] = Field(default_factory=list)
     target_locations: list[str] = Field(default_factory=list)
-    target_salary_min: Optional[float] = None
+    target_salary_min: float | None = None
     work_preference: str = "remote_first"
     skills: list[str] = Field(default_factory=list)
     active_search_skills: list[str] = Field(default_factory=list)
-    linkedin_url: Optional[str] = None
+    linkedin_url: str | None = None
 
 
 class LinkedInSyncRequest(BaseModel):
     """Payload for synchronizing and analyzing a LinkedIn profile using li_at session cookie."""
 
     linkedin_url: str
-    session_cookie: Optional[str] = None
-    raw_text_override: Optional[str] = None
+    session_cookie: str | None = None
+    raw_text_override: str | None = None
 
 
 @router.get("", response_model=dict[str, Any])
-async def get_profile(session: Session = Depends(get_session)) -> dict[str, Any]:
+async def get_profile(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Retrieve the primary UserProfile record."""
-    profile = session.exec(select(UserProfile)).first()
+    profile = get_user_profile(session, current_user.id, decrypt=True)
     if not profile:
         return {
             "status": "empty",
@@ -70,6 +76,7 @@ async def get_profile(session: Session = Depends(get_session)) -> dict[str, Any]
             "active_search_skills": json.loads(profile.active_search_skills_json or "[]"),
             "experience_history": json.loads(profile.experience_history_json or "[]"),
             "education": json.loads(profile.education_json or "[]"),
+            "projects": json.loads(profile.projects_json or "[]"),
             "linkedin_url": profile.linkedin_url,
             "updated_at": profile.updated_at.isoformat(),
         },
@@ -80,11 +87,13 @@ async def get_profile(session: Session = Depends(get_session)) -> dict[str, Any]
 async def update_profile(
     payload: ProfileUpdateRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Update profile attributes and sync embeddings with ChromaDB."""
-    profile = session.exec(select(UserProfile)).first()
+    profile = get_user_profile(session, current_user.id, decrypt=True)
     if not profile:
         profile = UserProfile(
+            user_id=current_user.id,
             full_name=payload.full_name,
             updated_at=utc_now(),
         )
@@ -103,6 +112,7 @@ async def update_profile(
     profile.linkedin_url = payload.linkedin_url
     profile.updated_at = utc_now()
 
+    encrypt_profile(profile, current_user.id)
     session.add(profile)
     session.commit()
     session.refresh(profile)
@@ -139,6 +149,7 @@ async def update_profile(
 async def sync_linkedin_profile(
     payload: LinkedInSyncRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Ingest, analyze with AI, and synchronize a LinkedIn profile using li_at cookie."""
     if not payload.linkedin_url or "linkedin.com" not in payload.linkedin_url:
@@ -150,6 +161,7 @@ async def sync_linkedin_profile(
             linkedin_url=payload.linkedin_url,
             session_cookie=payload.session_cookie,
             raw_text_override=payload.raw_text_override,
+            user_id=current_user.id,
         )
 
         return {
@@ -162,15 +174,16 @@ async def sync_linkedin_profile(
         }
     except Exception as err:
         logger.error("LinkedIn sync failed: %s", err)
-        raise HTTPException(status_code=500, detail=f"LinkedIn sync failed: {str(err)}")
+        raise HTTPException(status_code=500, detail=f"LinkedIn sync failed: {err!s}")
 
 
 @router.post("/generate-bio", response_model=dict[str, Any])
 async def generate_profile_bio_api(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Generate professional bio / executive summary for candidate using AI."""
-    profile = session.exec(select(UserProfile)).first()
+    profile = get_user_profile(session, current_user.id, decrypt=True)
     if not profile:
         raise HTTPException(status_code=404, detail="Candidate profile not found.")
 
@@ -189,6 +202,7 @@ async def generate_profile_bio_api(
 
     profile.bio = new_bio
     profile.updated_at = utc_now()
+    encrypt_profile(profile, current_user.id)
     session.add(profile)
     session.commit()
     session.refresh(profile)

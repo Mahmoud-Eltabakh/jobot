@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Optional
+
 import pandas as pd
 from jobspy import scrape_jobs
 
@@ -17,7 +17,7 @@ class JobSpyScraper(BaseScraper):
 
     SUPPORTED_SITES = ["linkedin", "google", "indeed", "glassdoor", "zip_recruiter"]
 
-    def __init__(self, default_sites: Optional[list[str]] = None) -> None:
+    def __init__(self, default_sites: list[str] | None = None) -> None:
         self.default_sites = default_sites or ["linkedin", "google"]
 
     def _sync_scrape(
@@ -130,11 +130,11 @@ class JobSpyScraper(BaseScraper):
         self,
         search_term: str,
         location: str,
-        results_wanted: Optional[int] = None,
-        site_name: Optional[list[str]] = None,
+        results_wanted: int | None = None,
+        site_name: list[str] | None = None,
         is_remote: bool = False,
         hours_old: int = 72,
-        country_indeed: Optional[str] = None,
+        country_indeed: str | None = None,
     ) -> list[ScrapedJob]:
         """Run JobSpy scraper asynchronously in thread pool without artificial small limits."""
         sites = site_name or self.default_sites

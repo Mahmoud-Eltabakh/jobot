@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex-1 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8 bg-slate-900 p-8 rounded-2xl border border-slate-800 shadow-2xl">
+        <div class="text-center">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-emerald-500 to-indigo-600 flex items-center justify-center font-bold text-white text-xl mx-auto mb-4 shadow-lg shadow-emerald-500/20">
+                JB
+            </div>
+            <h2 class="text-2xl font-bold tracking-tight text-white">Sign in to Jobot</h2>
+            <p class="mt-2 text-xs text-slate-400">Access your personalized AI job copilot dashboard</p>
+        </div>
+
+        {% if error %}
+        <div class="p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-xs text-red-300">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form class="mt-8 space-y-5" action="/login" method="POST">
+            <div class="space-y-4">
+                <div>
+                    <label for="email" class="block text-xs font-medium text-slate-300 mb-1">Email address</label>
+                    <input id="email" name="email" type="email" required class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition" placeholder="you@example.com">
+                </div>
+
+                <div>
+                    <label for="password" class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+                    <input id="password" name="password" type="password" required class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition" placeholder="••••••••">
+                </div>
+            </div>
+
+            <div>
+                <button type="submit" class="w-full py-2.5 px-4 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 active:scale-98 transition">
+                    Sign in
+                </button>
+            </div>
+        </form>
+
+        <div class="text-center pt-2">
+            <p class="text-xs text-slate-400">
+                Don't have an account? 
+                <a href="/register" class="font-medium text-emerald-400 hover:text-emerald-300 underline">Register a new account</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

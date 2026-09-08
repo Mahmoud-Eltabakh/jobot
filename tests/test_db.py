@@ -1,6 +1,7 @@
 """Tests for SQLModel relational database models, session lifecycle, and settings."""
 
 import hashlib
+
 import pytest
 from sqlmodel import Session, select
 
@@ -11,8 +12,6 @@ from app.db.database import (
     set_app_setting,
 )
 from app.db.models import (
-    AppSettings,
-    FeedbackNote,
     FilterRule,
     Job,
     JobStatus,

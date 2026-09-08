@@ -1,12 +1,12 @@
 """LinkedIn Playwright automated login handler and session cookie validator."""
 
-import asyncio
 import logging
 from typing import Any, Optional
 from playwright.async_api import async_playwright
-from sqlmodel import Session, select
+from sqlmodel import Session
 
-from app.db.models import UserProfile, utc_now
+from app.db.models import utc_now
+from app.db.ownership import encrypt_profile, get_user_profile
 
 logger = logging.getLogger("jobot.scrapers.linkedin_auth")
 
@@ -26,93 +26,97 @@ class LinkedInAuthManager:
         password: str,
         headless: bool = True,
         session: Optional[Session] = None,
+        user_id: Optional[int] = None,
     ) -> dict[str, Any]:
         """
         Execute automated login to LinkedIn with provided credentials.
-        Returns dictionary containing status, session cookie (li_at), and messages.
+        Returns status dictionary — the raw li_at cookie is NEVER included in the response.
         """
         if not email or not password or not email.strip() or not password.strip():
             return {
                 "success": False,
                 "error": "Email and password are required for login.",
-                "session_cookie": None,
             }
 
         logger.info("Initiating LinkedIn Playwright login for account '%s'", email.strip())
         session_cookie = None
-        user_name = None
+        browser = None
 
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=headless,
+                    timeout=30000,
                     args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
                 )
-                context = await browser.new_context(
-                    user_agent=DEFAULT_USER_AGENT,
-                    viewport={"width": 1280, "height": 900},
-                )
-                page = await context.new_page()
+                try:
+                    context = await browser.new_context(
+                        user_agent=DEFAULT_USER_AGENT,
+                        viewport={"width": 1280, "height": 900},
+                    )
+                    page = await context.new_page()
 
-                await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=25000)
-                await page.wait_for_timeout(1000)
+                    await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=25000)
+                    await page.wait_for_timeout(1000)
 
-                # Fill credentials
-                if await page.is_visible("#username", timeout=3000):
-                    await page.fill("#username", email.strip())
-                    await page.fill("#password", password.strip())
-                    await page.click("button[type='submit']")
-                    await page.wait_for_timeout(3500)
+                    # Fill credentials
+                    if await page.is_visible("#username", timeout=3000):
+                        await page.fill("#username", email.strip())
+                        await page.fill("#password", password.strip())
+                        await page.click("button[type='submit']")
+                        await page.wait_for_timeout(3500)
 
-                    # Check for 2FA / checkpoint / captcha
-                    current_url = page.url
-                    if "checkpoint" in current_url or "challenge" in current_url:
-                        logger.warning("LinkedIn presented a security challenge or 2FA prompt for '%s'", email)
-                        await browser.close()
-                        return {
-                            "success": False,
-                            "error": "LinkedIn requires 2FA or email PIN verification. Please copy your li_at session cookie from your browser and paste it into the Session Cookie field.",
-                            "requires_2fa": True,
-                            "session_cookie": None,
-                        }
+                        # Check for 2FA / checkpoint / captcha
+                        current_url = page.url
+                        if "checkpoint" in current_url or "challenge" in current_url:
+                            logger.warning("LinkedIn presented a security challenge or 2FA prompt for '%s'", email)
+                            return {
+                                "success": False,
+                                "error": "LinkedIn requires 2FA or email PIN verification. Please copy your li_at session cookie from your browser and paste it into the Session Cookie field.",
+                                "requires_2fa": True,
+                            }
 
-                    # Extract cookies
-                    cookies = await context.cookies()
-                    for c in cookies:
-                        if c.get("name") == "li_at":
-                            session_cookie = c.get("value")
-                            break
-
-                await browser.close()
+                        # Extract cookies
+                        cookies = await context.cookies()
+                        for c in cookies:
+                            if c.get("name") == "li_at":
+                                session_cookie = c.get("value")
+                                break
+                finally:
+                    await browser.close()
 
         except Exception as err:
             logger.error("LinkedIn login process failed: %s", err)
             return {
                 "success": False,
                 "error": f"Login automation error: {str(err)}",
-                "session_cookie": None,
             }
 
         if session_cookie:
             logger.info("Successfully extracted LinkedIn li_at cookie")
             if session:
-                profile = session.exec(select(UserProfile)).first()
+                if user_id is None:
+                    raise PermissionError("Authenticated user is required to persist LinkedIn credentials")
+                profile = get_user_profile(session, user_id, decrypt=True)
                 if profile:
                     profile.linkedin_session_cookie = session_cookie
                     profile.updated_at = utc_now()
+                    encrypt_profile(profile, user_id)
                     session.add(profile)
                     session.commit()
 
+            # NOTE: The raw li_at token is never returned in the response.
+            # It is stored encrypted in the database only.
             return {
                 "success": True,
+                "session_captured": True,
                 "message": "Successfully logged in to LinkedIn and captured session cookie!",
-                "session_cookie": session_cookie,
             }
 
         return {
             "success": False,
+            "session_captured": False,
             "error": "Could not capture li_at session cookie after login attempt. Please check credentials or provide cookie manually.",
-            "session_cookie": None,
         }
 
     @classmethod

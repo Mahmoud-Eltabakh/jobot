@@ -2,32 +2,41 @@
 
 import json
 import logging
-from typing import Any, Optional
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, select, desc, asc
+from sqlmodel import Session, asc, desc, select
 
+from app.ai.application_generator import ApplicationGenerator
+from app.ai.client import get_ai_client
+from app.ai.embeddings import ProfileEmbedder
+from app.ai.evaluator import JobEvaluator
+from app.ai.profile_extractor import ExtractedProfile, generate_candidate_bio
+from app.auth.dependencies import COOKIE_NAME, get_current_user, get_optional_current_user
+from app.auth.security import create_user_session, hash_password, revoke_session, verify_password
 from app.core.config import get_settings
-from app.db.database import get_session, get_app_setting, set_app_setting
+from app.db.database import get_app_setting, get_session, get_user_setting
 from app.db.models import (
+    ApplicationMaterial,
+    FeedbackNote,
+    FilterRule,
     Job,
     JobStatus,
     JobStatusHistory,
-    UserProfile,
-    SearchConfig,
-    FeedbackNote,
-    FilterRule,
-    ApplicationMaterial,
     ScrapeTask,
+    SearchConfig,
+    User,
+    UserProfile,
     utc_now,
 )
-from app.ai.application_generator import ApplicationGenerator
-from app.ai.client import get_ai_client
-from app.ai.evaluator import JobEvaluator
-from app.ai.cv_parser import CVParser
-from app.ai.profile_extractor import ExtractedProfile, extract_profile_from_text, save_profile_to_db, generate_candidate_bio
-from app.ai.embeddings import ProfileEmbedder
+from app.db.ownership import (
+    encrypt_profile,
+    get_user_profile,
+    migrate_legacy_user_data,
+    owned_by_id,
+)
 from app.db.vector import get_vector_store
 
 logger = logging.getLogger("jobot.web.routes")
@@ -38,11 +47,11 @@ templates = Jinja2Templates(directory="templates")
 
 def apply_job_filters(
     statement: Any,
-    q: Optional[str] = None,
-    min_score: Optional[int] = None,
-    work_model: Optional[str] = None,
-    min_salary: Optional[float] = None,
-    source: Optional[str] = None,
+    q: str | None = None,
+    min_score: int | None = None,
+    work_model: str | None = None,
+    min_salary: float | None = None,
+    source: str | None = None,
     hide_rejected: bool = False,
     hide_not_fit: bool = False,
     sort_by: str = "fit_score",
@@ -88,23 +97,169 @@ def apply_job_filters(
     return statement
 
 
-@router.get("/", response_class=HTMLResponse)
-async def index_page(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
-    """Serve main application shell."""
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request) -> HTMLResponse:
+    """Serve login page."""
     settings = get_settings()
-    user_profile = session.exec(select(UserProfile)).first()
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"app_name": settings.app_name, "error": None},
+    )
+
+
+@router.post("/login", response_class=HTMLResponse)
+async def login_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    """Handle web form login submit."""
+    settings = get_settings()
+    user = session.exec(select(User).where(User.email == email.strip().lower())).first()
+    if not user or not verify_password(password, user.password_hash):
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"app_name": settings.app_name, "error": "Invalid email or password"},
+            status_code=400,
+        )
+
+    session_obj = create_user_session(session, user.id)
+    response = HTMLResponse(content="", status_code=303, headers={"Location": "/"})
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=session_obj.session_token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+    )
+    return response
+
+
+@router.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request) -> HTMLResponse:
+    """Serve register page."""
+    settings = get_settings()
+    return templates.TemplateResponse(
+        request=request,
+        name="register.html",
+        context={"app_name": settings.app_name, "error": None},
+    )
+
+
+@router.post("/register", response_class=HTMLResponse)
+async def register_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    full_name: str = Form(""),
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    """Handle web form registration submit."""
+    settings = get_settings()
+    email_clean = email.strip().lower()
+    if not email_clean or "@" not in email_clean:
+        return templates.TemplateResponse(
+            request=request,
+            name="register.html",
+            context={"app_name": settings.app_name, "error": "Invalid email address"},
+            status_code=400,
+        )
+    if len(password) < 10:
+        return templates.TemplateResponse(
+            request=request,
+            name="register.html",
+            context={"app_name": settings.app_name, "error": "Password must be at least 10 characters"},
+            status_code=400,
+        )
+
+    existing = session.exec(select(User).where(User.email == email_clean)).first()
+    if existing:
+        return templates.TemplateResponse(
+            request=request,
+            name="register.html",
+            context={"app_name": settings.app_name, "error": "User with this email already exists"},
+            status_code=400,
+        )
+
+    user = User(
+        email=email_clean,
+        password_hash=hash_password(password),
+        full_name=full_name or "",
+        is_active=True,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    migrate_legacy_user_data(session)
+    profile = get_user_profile(session, user.id)
+    if not profile:
+        profile = UserProfile(user_id=user.id, full_name=user.full_name or "Candidate")
+        session.add(profile)
+        session.commit()
+
+    session_obj = create_user_session(session, user.id)
+    response = HTMLResponse(content="", status_code=303, headers={"Location": "/"})
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=session_obj.session_token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+    )
+    return response
+
+
+@router.get("/logout", response_class=HTMLResponse)
+async def logout_web(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    """Handle logout and clear authentication cookie."""
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        revoke_session(session, token)
+    response = HTMLResponse(content="", status_code=303, headers={"Location": "/login"})
+    response.delete_cookie(key=COOKIE_NAME)
+    return response
+
+
+@router.get("/", response_class=HTMLResponse)
+async def index_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> HTMLResponse:
+    """Serve main application shell or redirect unauthenticated user to auth flow."""
+    settings = get_settings()
+
+    if not current_user:
+        # Check if any user is registered in the system
+        has_any_user = session.exec(select(User)).first() is not None
+        if not has_any_user:
+            return HTMLResponse(content="", status_code=303, headers={"Location": "/register"})
+        return HTMLResponse(content="", status_code=303, headers={"Location": "/login"})
+
+    user_profile = get_user_profile(session, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "app_name": settings.app_name,
             "user_profile": user_profile,
+            "current_user": current_user,
         },
     )
 
 
 @router.get("/web/components/filter-bar", response_class=HTMLResponse)
-async def get_filter_bar(request: Request) -> HTMLResponse:
+async def get_filter_bar(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
     """Render the filter toolbar partial."""
     return templates.TemplateResponse(request=request, name="components/filter_bar.html", context={})
 
@@ -113,10 +268,11 @@ async def get_filter_bar(request: Request) -> HTMLResponse:
 async def get_queue_status_component(
     request: Request,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render the live queue activity widget."""
     from app.queue.task_queue import TaskQueue
-    stats = TaskQueue.get_stats(session)
+    stats = TaskQueue.get_stats(session, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="components/queue_status.html",
@@ -128,15 +284,16 @@ async def get_queue_status_component(
 async def get_queue_view(
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = "all",
-    q: Optional[str] = None,
+    status_filter: str | None = "all",
+    q: str | None = None,
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render Active AI Task Queue & Control Center partial."""
     from app.queue.task_queue import TaskQueue
 
-    stats = TaskQueue.get_stats(session)
+    stats = TaskQueue.get_stats(session, current_user.id)
 
-    stmt = select(ScrapeTask)
+    stmt = select(ScrapeTask).where(ScrapeTask.user_id == current_user.id)
     if status_filter and status_filter != "all":
         stmt = stmt.where(ScrapeTask.status == status_filter.strip().lower())
 
@@ -156,14 +313,16 @@ async def get_queue_view(
     for t in raw_tasks:
         try:
             p = json.loads(t.payload_json or "{}")
-            if "job_id" in p and p["job_id"]:
+            if p.get("job_id"):
                 job_ids.append(p["job_id"])
         except Exception:
             pass
 
     job_map = {}
     if job_ids:
-        jobs = session.exec(select(Job).where(Job.id.in_(job_ids))).all()
+        jobs = session.exec(
+            select(Job).where(Job.id.in_(job_ids), Job.user_id == current_user.id)
+        ).all()
         job_map = {j.id: j for j in jobs}
 
     enriched_tasks = []
@@ -199,52 +358,56 @@ async def get_queue_view(
 async def toggle_queue_pause_web(
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = Form("all"),
-    q: Optional[str] = Form(""),
+    status_filter: str | None = Form("all"),
+    q: str | None = Form(""),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Toggle queue worker pause state and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
     TaskQueue.toggle_pause(session)
-    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q)
+    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
 @router.post("/web/queue/retry-failed", response_class=HTMLResponse)
 async def retry_failed_tasks_web(
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = Form("all"),
-    q: Optional[str] = Form(""),
+    status_filter: str | None = Form("all"),
+    q: str | None = Form(""),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Retry all failed queue tasks and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
-    TaskQueue.retry_all_failed(session)
-    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q)
+    TaskQueue.retry_all_failed(session, current_user.id)
+    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
 @router.post("/web/queue/clear-completed", response_class=HTMLResponse)
 async def clear_completed_tasks_web(
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = Form("all"),
-    q: Optional[str] = Form(""),
+    status_filter: str | None = Form("all"),
+    q: str | None = Form(""),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Clear completed tasks and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
-    TaskQueue.clear_completed(session)
-    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q)
+    TaskQueue.clear_completed(session, current_user.id)
+    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
 @router.post("/web/queue/clear-all", response_class=HTMLResponse)
 async def clear_all_tasks_web(
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = Form("all"),
-    q: Optional[str] = Form(""),
+    status_filter: str | None = Form("all"),
+    q: str | None = Form(""),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Clear all non-running tasks and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
-    TaskQueue.clear_all(session, include_in_progress=False)
-    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q)
+    TaskQueue.clear_all(session, include_in_progress=False, user_id=current_user.id)
+    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
 @router.post("/web/queue/tasks/{task_id}/retry", response_class=HTMLResponse)
@@ -252,13 +415,14 @@ async def retry_individual_task_web(
     task_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = Form("all"),
-    q: Optional[str] = Form(""),
+    status_filter: str | None = Form("all"),
+    q: str | None = Form(""),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Retry individual task and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
-    TaskQueue.retry_task(session, task_id)
-    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q)
+    TaskQueue.retry_task(session, task_id, current_user.id)
+    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
 @router.delete("/web/queue/tasks/{task_id}", response_class=HTMLResponse)
@@ -266,29 +430,31 @@ async def delete_queue_task_web(
     task_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    status_filter: Optional[str] = Form("all"),
-    q: Optional[str] = Form(""),
+    status_filter: str | None = Form("all"),
+    q: str | None = Form(""),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Delete individual task and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
-    TaskQueue.delete_task(session, task_id)
-    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q)
+    TaskQueue.delete_task(session, task_id, current_user.id)
+    return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
 @router.get("/web/views/kanban", response_class=HTMLResponse)
 async def get_kanban_view(
     request: Request,
     session: Session = Depends(get_session),
-    q: Optional[str] = None,
-    min_score: Optional[int] = None,
-    work_model: Optional[str] = None,
-    min_salary: Optional[float] = None,
-    source: Optional[str] = None,
+    q: str | None = None,
+    min_score: int | None = None,
+    work_model: str | None = None,
+    min_salary: float | None = None,
+    source: str | None = None,
     hide_rejected: bool = False,
     hide_not_fit: bool = False,
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render 8-stage Kanban board partial."""
-    stmt = select(Job)
+    stmt = select(Job).where(Job.user_id == current_user.id)
     stmt = apply_job_filters(
         stmt,
         q=q,
@@ -338,18 +504,19 @@ async def get_kanban_view(
 async def get_table_view(
     request: Request,
     session: Session = Depends(get_session),
-    q: Optional[str] = None,
-    min_score: Optional[int] = None,
-    work_model: Optional[str] = None,
-    min_salary: Optional[float] = None,
-    source: Optional[str] = None,
+    q: str | None = None,
+    min_score: int | None = None,
+    work_model: str | None = None,
+    min_salary: float | None = None,
+    source: str | None = None,
     hide_rejected: bool = False,
     hide_not_fit: bool = False,
     sort_by: str = "fit_score",
     sort_order: str = "desc",
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render sortable Data Table partial."""
-    stmt = select(Job)
+    stmt = select(Job).where(Job.user_id == current_user.id)
     stmt = apply_job_filters(
         stmt,
         q=q,
@@ -380,27 +547,39 @@ async def get_table_view(
 async def get_settings_view(
     request: Request,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render Settings and AI Configurator partial."""
-    user_profile = session.exec(select(UserProfile)).first()
-    rules = session.exec(select(FilterRule)).all()
-    search_configs = session.exec(select(SearchConfig)).all()
+    settings = get_settings()
+    user_profile = get_user_profile(session, current_user.id)
+    rules = session.exec(select(FilterRule).where(FilterRule.user_id == current_user.id)).all()
+    search_configs = session.exec(select(SearchConfig).where(SearchConfig.user_id == current_user.id)).all()
 
-    ai_provider = get_app_setting("ai_provider", "ollama")
-    ollama_base_url = get_app_setting("ollama_base_url", "http://localhost:11434")
-    ollama_model = get_app_setting("ollama_model", "llama3.1:8b")
+    ai_provider = get_user_setting(session, current_user.id, "ai_provider", get_app_setting("ai_provider", "ollama"))
+    ollama_base_url = get_user_setting(session, current_user.id, "ollama_base_url", get_app_setting("ollama_base_url", "http://localhost:11434"))
+    ollama_model = get_user_setting(session, current_user.id, "ollama_model", get_app_setting("ollama_model", "llama3.1:8b"))
     ollama_embed_model = get_app_setting("ollama_embed_model", "nomic-embed-text")
-    openai_base_url = get_app_setting("openai_base_url", "https://api.openai.com/v1")
-    openai_model = get_app_setting("openai_model", "gpt-4o-mini")
-    openai_api_key = get_app_setting("openai_api_key", "")
+    openai_base_url = get_user_setting(session, current_user.id, "openai_base_url", get_app_setting("openai_base_url", "https://api.openai.com/v1"))
+    openai_model = get_user_setting(session, current_user.id, "openai_model", get_app_setting("openai_model", "gpt-4o-mini"))
+    has_openai_api_key = bool(get_user_setting(session, current_user.id, "openai_api_key", ""))
     interval_hours = get_app_setting("scraper_default_interval_hours", 12)
 
     # Scoring weights
-    weight_skills = get_app_setting("weight_skills", 70)
-    weight_title = get_app_setting("weight_title", 15)
-    weight_location = get_app_setting("weight_location", 10)
-    weight_experience = get_app_setting("weight_experience", 5)
-    weight_vector = get_app_setting("weight_vector", 20)
+    weight_skills = get_user_setting(session, current_user.id, "weight_skills", get_app_setting("weight_skills", 70))
+    weight_title = get_user_setting(session, current_user.id, "weight_title", get_app_setting("weight_title", 15))
+    weight_location = get_user_setting(session, current_user.id, "weight_location", get_app_setting("weight_location", 10))
+    weight_experience = get_user_setting(session, current_user.id, "weight_experience", get_app_setting("weight_experience", 5))
+    weight_vector = get_user_setting(session, current_user.id, "weight_vector", get_app_setting("weight_vector", 20))
+    weight_history_skills = get_user_setting(session, current_user.id, "weight_history_skills", get_app_setting("weight_history_skills", 10))
+    weight_education = get_user_setting(session, current_user.id, "weight_education", get_app_setting("weight_education", 5))
+    weight_projects = get_user_setting(session, current_user.id, "weight_projects", get_app_setting("weight_projects", 10))
+
+    tailscale_enabled = get_user_setting(session, current_user.id, "tailscale_enabled", settings.tailscale_enabled)
+    tailscale_hostname = get_user_setting(session, current_user.id, "tailscale_hostname", settings.tailscale_hostname)
+    tailscale_ssh_user = get_user_setting(session, current_user.id, "tailscale_ssh_user", settings.tailscale_ssh_user)
+    tailscale_ssh_port = get_user_setting(session, current_user.id, "tailscale_ssh_port", settings.tailscale_ssh_port)
+    tailscale_app_port = get_user_setting(session, current_user.id, "tailscale_app_port", settings.tailscale_app_port)
+    tailscale_magic_dns = get_user_setting(session, current_user.id, "tailscale_magic_dns", settings.tailscale_magic_dns)
 
     # Fetch available models if Ollama is accessible
     from app.ai.client import OllamaAIClient
@@ -420,13 +599,22 @@ async def get_settings_view(
             "available_ollama_models": available_ollama_models,
             "openai_base_url": openai_base_url,
             "openai_model": openai_model,
-            "openai_api_key": openai_api_key,
+            "has_openai_api_key": has_openai_api_key,
             "interval_hours": interval_hours,
             "weight_skills": weight_skills,
             "weight_title": weight_title,
             "weight_location": weight_location,
             "weight_experience": weight_experience,
             "weight_vector": weight_vector,
+            "weight_history_skills": weight_history_skills,
+            "weight_education": weight_education,
+            "weight_projects": weight_projects,
+            "tailscale_enabled": tailscale_enabled,
+            "tailscale_hostname": tailscale_hostname,
+            "tailscale_ssh_user": tailscale_ssh_user,
+            "tailscale_ssh_port": tailscale_ssh_port,
+            "tailscale_app_port": tailscale_app_port,
+            "tailscale_magic_dns": tailscale_magic_dns,
         },
     )
 
@@ -436,9 +624,10 @@ async def get_job_inspector(
     job_id: int,
     request: Request,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render Job Inspector slide-over drawer."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         return HTMLResponse("<div class='p-4 text-rose-400'>Job not found</div>", status_code=404)
 
@@ -452,7 +641,10 @@ async def get_job_inspector(
         select(JobStatusHistory).where(JobStatusHistory.job_id == job_id).order_by(desc(JobStatusHistory.changed_at))
     ).all()
     notes = session.exec(
-        select(FeedbackNote).where(FeedbackNote.job_id == job_id).order_by(desc(FeedbackNote.created_at))
+        select(FeedbackNote).where(
+            FeedbackNote.job_id == job_id,
+            FeedbackNote.user_id == current_user.id,
+        ).order_by(desc(FeedbackNote.created_at))
     ).all()
 
     # Get existing application materials
@@ -460,12 +652,14 @@ async def get_job_inspector(
         select(ApplicationMaterial).where(
             ApplicationMaterial.job_id == job_id,
             ApplicationMaterial.material_type == "cover_letter",
+            ApplicationMaterial.user_id == current_user.id,
         )
     ).first()
     tailored_resume = session.exec(
         select(ApplicationMaterial).where(
             ApplicationMaterial.job_id == job_id,
             ApplicationMaterial.material_type == "tailored_resume",
+            ApplicationMaterial.user_id == current_user.id,
         )
     ).first()
 
@@ -493,15 +687,16 @@ async def generate_cover_letter_view(
     job_id: int,
     request: Request,
     tone: str = Form("professional"),
-    custom_instructions: Optional[str] = Form(None),
+    custom_instructions: str | None = Form(None),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Generate cover letter from inspector UI and return updated container HTML."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    user_profile = session.exec(select(UserProfile)).first() or UserProfile()
+    user_profile = get_user_profile(session, current_user.id, decrypt=True) or UserProfile(user_id=current_user.id)
     content = await ApplicationGenerator.generate_cover_letter(
         job=job,
         user_profile=user_profile,
@@ -515,6 +710,7 @@ async def generate_cover_letter_view(
         material_type="cover_letter",
         content_markdown=content,
         tone=tone,
+        user_id=current_user.id,
     )
 
     return HTMLResponse(
@@ -537,13 +733,14 @@ async def generate_tailored_resume_view(
     job_id: int,
     request: Request,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Generate tailored resume points from inspector UI and return updated container HTML."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    user_profile = session.exec(select(UserProfile)).first() or UserProfile()
+    user_profile = get_user_profile(session, current_user.id, decrypt=True) or UserProfile(user_id=current_user.id)
     content = await ApplicationGenerator.generate_tailored_resume_points(
         job=job,
         user_profile=user_profile,
@@ -555,6 +752,7 @@ async def generate_tailored_resume_view(
         material_type="tailored_resume",
         content_markdown=content,
         tone="professional",
+        user_id=current_user.id,
     )
 
     return HTMLResponse(
@@ -579,14 +777,18 @@ async def save_material_view(
     content_markdown: str = Form(...),
     tone: str = Form("professional"),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Persist modified material content from inspector form."""
+    if not owned_by_id(session, Job, job_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Job not found")
     ApplicationGenerator.save_material(
         session=session,
         job_id=job_id,
         material_type=material_type,
         content_markdown=content_markdown,
         tone=tone,
+        user_id=current_user.id,
     )
     return HTMLResponse('<span class="text-xs text-emerald-400 font-semibold">Saved!</span>')
 
@@ -595,11 +797,12 @@ async def save_material_view(
 async def update_job_status(
     job_id: int,
     new_status: str = Form(...),
-    notes: Optional[str] = Form(None),
+    notes: str | None = Form(None),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Update job lifecycle status and return refreshed Kanban card."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -629,11 +832,12 @@ async def update_job_status(
 async def get_profile_view(
     request: Request,
     session: Session = Depends(get_session),
-    error_message: Optional[str] = None,
-    toast_message: Optional[str] = None,
+    error_message: str | None = None,
+    toast_message: str | None = None,
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
-    """Render Candidate Profile editing view."""
-    user_profile = session.exec(select(UserProfile)).first()
+    """Render the candidate profile editing view with structured, parsed profile data."""
+    user_profile = get_user_profile(session, current_user.id, decrypt=True)
     
     target_titles = json.loads(user_profile.target_titles_json or "[]") if user_profile else []
     target_locations = json.loads(user_profile.target_locations_json or "[]") if user_profile else []
@@ -644,9 +848,26 @@ async def get_profile_view(
 
     exp_history = json.loads(user_profile.experience_history_json or "[]") if user_profile else []
     education = json.loads(user_profile.education_json or "[]") if user_profile else []
-    exp_history_str = json.dumps(exp_history, indent=2) if exp_history else ""
-    education_str = json.dumps(education, indent=2) if education else ""
+    projects = json.loads(user_profile.projects_json or "[]") if user_profile else []
+
+    def sort_profile_entries(entries: list[dict]) -> list[dict]:
+        return sorted(
+            entries,
+            key=lambda item: (
+                str(item.get("title") or item.get("company") or item.get("school") or item.get("degree") or item.get("field_of_study") or "").lower(),
+                str(item.get("company") or item.get("school") or "").lower(),
+                str(item.get("duration") or item.get("start_date") or item.get("period") or "").lower(),
+            ),
+        )
+
+    sorted_exp_history = sort_profile_entries(exp_history)
+    sorted_education = sort_profile_entries(education)
+    sorted_projects = sort_profile_entries(projects)
+    exp_history_str = json.dumps(sorted_exp_history, indent=2) if sorted_exp_history else ""
+    education_str = json.dumps(sorted_education, indent=2) if sorted_education else ""
+    projects_str = json.dumps(sorted_projects, indent=2) if sorted_projects else ""
     cv_raw_text = (user_profile.cv_raw_text or "") if user_profile else ""
+    linkedin_raw_text = (user_profile.linkedin_raw_text or "") if user_profile else ""
 
     return templates.TemplateResponse(
         request=request,
@@ -660,7 +881,9 @@ async def get_profile_view(
             "active_skills": active_skills,
             "experience_history_str": exp_history_str,
             "education_str": education_str,
+            "projects_str": projects_str,
             "cv_raw_text": cv_raw_text,
+            "linkedin_raw_text": linkedin_raw_text,
             "error_message": error_message,
             "toast_message": toast_message,
         },
@@ -671,19 +894,21 @@ async def get_profile_view(
 async def update_profile_form(
     request: Request,
     full_name: str = Form(...),
-    headline: Optional[str] = Form(None),
-    bio: Optional[str] = Form(None),
+    headline: str | None = Form(None),
+    bio: str | None = Form(None),
     experience_years: float = Form(0.0),
     target_titles: str = Form(...),
     target_locations: str = Form(""),
-    target_salary_min: Optional[float] = Form(None),
+    target_salary_min: float | None = Form(None),
     work_preference: str = Form("remote_first"),
     skills: str = Form(""),
     active_skills: list[str] = Form(default=[]),
-    experience_history_text: Optional[str] = Form(None),
-    education_text: Optional[str] = Form(None),
-    cv_raw_text: Optional[str] = Form(None),
+    experience_history_text: str | None = Form(None),
+    education_text: str | None = Form(None),
+    projects_text: str | None = Form(None),
+    cv_raw_text: str | None = Form(None),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Update user profile from web form and return refreshed profile view."""
     titles_list = [t.strip() for t in target_titles.split(",") if t.strip()]
@@ -691,9 +916,9 @@ async def update_profile_form(
     skills_list = [s.strip() for s in skills.split(",") if s.strip()]
     active_skills_list = active_skills if active_skills else skills_list
 
-    user_profile = session.exec(select(UserProfile)).first()
+    user_profile = get_user_profile(session, current_user.id, decrypt=True)
     if not user_profile:
-        user_profile = UserProfile(full_name=full_name, updated_at=utc_now())
+        user_profile = UserProfile(user_id=current_user.id, full_name=full_name, updated_at=utc_now())
         session.add(user_profile)
 
     user_profile.full_name = full_name
@@ -723,11 +948,20 @@ async def update_profile_form(
         except Exception:
             pass
 
+    if projects_text is not None:
+        try:
+            txt = projects_text.strip()
+            project_data = json.loads(txt) if txt.startswith("[") else ([{"name": line.strip()} for line in txt.split("\n") if line.strip()] if txt else [])
+            user_profile.projects_json = json.dumps(project_data)
+        except Exception:
+            pass
+
     if cv_raw_text is not None and cv_raw_text.strip():
         user_profile.cv_raw_text = cv_raw_text.strip()
 
     user_profile.updated_at = utc_now()
 
+    encrypt_profile(user_profile, current_user.id)
     session.add(user_profile)
     session.commit()
     session.refresh(user_profile)
@@ -748,40 +982,47 @@ async def update_profile_form(
             linkedin_url=user_profile.linkedin_url,
         )
         vector_store = get_vector_store()
-        ai_client = get_ai_client()
+        ai_client = get_ai_client(session, current_user.id)
         await ProfileEmbedder.embed_and_store_profile(extracted, vector_store, ai_client)
     except Exception as err:
         logger.warning("Failed refreshing vector embeddings on profile save: %s", err)
 
     # Purge any jobs that do not match the updated candidate profile skills
     try:
-        purged = JobEvaluator.purge_non_matching_jobs(session)
+        purged = JobEvaluator.purge_non_matching_jobs(session, user_id=current_user.id)
         logger.info("Purged %d non-matching jobs from databank after profile update", purged)
     except Exception as purge_err:
         logger.warning("Failed purging non-matching jobs on profile save: %s", purge_err)
 
-    return await get_profile_view(request=request, session=session)
+    return await get_profile_view(request=request, session=session, current_user=current_user)
 
 
 @router.post("/web/profile/rescore-filter", response_class=HTMLResponse)
 async def rescore_and_filter_view(
     request: Request,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Re-evaluate and rescore all stored jobs against candidate profile and purge non-matches."""
-    ai_client = get_ai_client()
-    count = await JobEvaluator.rescore_all_jobs(session=session, ai_client=ai_client)
+    ai_client = get_ai_client(session, current_user.id)
+    count = await JobEvaluator.rescore_all_jobs(
+        session=session, ai_client=ai_client, user_id=current_user.id
+    )
     logger.info("Rescored and filtered %d jobs from UI action", count)
 
     return await get_profile_view(
         request=request,
         session=session,
         toast_message=f"Rescored and Filtered {count} stored jobs successfully!",
+        current_user=current_user,
     )
 
 
 @router.get("/web/components/scrape-modal", response_class=HTMLResponse)
-async def get_scrape_modal_view(request: Request) -> HTMLResponse:
+async def get_scrape_modal_view(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
     """Render popup modal asking whether to start fresh or search more."""
     return templates.TemplateResponse(
         request=request,
@@ -795,30 +1036,35 @@ async def run_scrape_modal_action(
     request: Request,
     mode: str = Query("incremental"),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Execute scrape discovery with option to clear new matches or search more."""
     from app.queue.task_queue import TaskQueue
 
     cleared_count = 0
     if mode == "fresh":
-        seen_jobs = session.exec(select(Job).where(Job.status == JobStatus.SEEN.value)).all()
-        for j in seen_jobs:
+        new_jobs = session.exec(
+            select(Job).where(
+                (Job.status == JobStatus.NEW.value) | (Job.status == JobStatus.SEEN.value)
+            ).where(Job.user_id == current_user.id)
+        ).all()
+        for j in new_jobs:
             session.delete(j)
-        cleared_count = len(seen_jobs)
+        cleared_count = len(new_jobs)
         session.commit()
-        logger.info("Cleared %d existing 'seen' (New Matches) jobs for fresh discovery", cleared_count)
+        logger.info("Cleared %d existing new/seen jobs for fresh discovery", cleared_count)
 
-    task = TaskQueue.enqueue(
+    TaskQueue.enqueue(
         session=session,
         task_type="full_discovery",
         payload={"max_queries": 5, "mode": mode},
+        user_id=current_user.id,
     )
 
     msg = f"Fresh discovery queued! Cleared {cleared_count} old matches." if mode == "fresh" else "Incremental search discovery queued!"
 
     html = f"""
-    <div id="modal-container" hx-swap-oob="delete"></div>
-    <div id="toast-notification" class="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500 text-emerald-300 px-4 py-3 rounded-xl shadow-2xl font-semibold text-xs flex items-center space-x-2 animate-bounce">
+    <div id="toast-notification" class="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500 text-emerald-300 px-4 py-3 rounded-xl shadow-2xl font-semibold text-xs flex items-center space-x-2 animate-bounce cursor-pointer" onclick="this.remove()">
         <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
         <span>{msg}</span>
     </div>
@@ -835,16 +1081,17 @@ async def run_scrape_modal_action(
 @router.post("/web/profile/generate-bio", response_class=HTMLResponse)
 async def generate_profile_bio_web(
     request: Request,
-    full_name: Optional[str] = Form(None),
-    headline: Optional[str] = Form(None),
-    experience_years: Optional[float] = Form(None),
-    target_titles: Optional[str] = Form(None),
-    skills: Optional[str] = Form(None),
-    work_preference: Optional[str] = Form(None),
+    full_name: str | None = Form(None),
+    headline: str | None = Form(None),
+    experience_years: float | None = Form(None),
+    target_titles: str | None = Form(None),
+    skills: str | None = Form(None),
+    work_preference: str | None = Form(None),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Generate executive summary / bio using AI and return swapped textarea component HTML."""
-    profile = session.exec(select(UserProfile)).first()
+    profile = get_user_profile(session, current_user.id, decrypt=True)
 
     titles_list = [t.strip() for t in target_titles.split(",") if t.strip()] if target_titles else (json.loads(profile.target_titles_json or "[]") if profile else [])
     skills_list = [s.strip() for s in skills.split(",") if s.strip()] if skills else (json.loads(profile.skills_json or "[]") if profile else [])
@@ -860,12 +1107,13 @@ async def generate_profile_bio_web(
         "bio": profile.bio if profile else "",
     }
 
-    ai_client = get_ai_client()
+    ai_client = get_ai_client(session, current_user.id)
     generated_bio = await generate_candidate_bio(cand_data, ai_client)
 
     if profile:
         profile.bio = generated_bio
         profile.updated_at = utc_now()
+        encrypt_profile(profile, current_user.id)
         session.add(profile)
         session.commit()
 
@@ -900,6 +1148,7 @@ async def sync_linkedin_form(
     linkedin_url: str = Form(...),
     session_cookie: str = Form(...),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Analyze and sync LinkedIn profile using li_at session cookie."""
     from app.ai.linkedin_analyzer import LinkedInProfileAnalyzer
@@ -911,6 +1160,7 @@ async def sync_linkedin_form(
                 session=session,
                 linkedin_url=linkedin_url.strip(),
                 session_cookie=session_cookie.strip() if session_cookie else None,
+                user_id=current_user.id,
             )
         except Exception as err:
             logger.error("LinkedIn sync failed: %s", err)
@@ -918,7 +1168,9 @@ async def sync_linkedin_form(
     else:
         error_msg = "Please enter a valid LinkedIn profile URL (e.g. https://www.linkedin.com/in/username)."
 
-    return await get_profile_view(request=request, session=session, error_message=error_msg)
+    return await get_profile_view(
+        request=request, session=session, error_message=error_msg, current_user=current_user
+    )
 
 
 @router.post("/api/jobs/{job_id}/notes")
@@ -928,13 +1180,15 @@ async def add_job_note(
     note_text: str = Form(...),
     sentiment: str = Form("neutral"),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Add a feedback note to a job and return updated notes timeline."""
-    job = session.get(Job, job_id)
+    job = owned_by_id(session, Job, job_id, current_user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     note = FeedbackNote(
+        user_id=current_user.id,
         job_id=job.id,
         note_text=note_text.strip(),
         sentiment=sentiment,
@@ -944,7 +1198,10 @@ async def add_job_note(
     session.commit()
 
     notes = session.exec(
-        select(FeedbackNote).where(FeedbackNote.job_id == job_id).order_by(desc(FeedbackNote.created_at))
+        select(FeedbackNote).where(
+            FeedbackNote.job_id == job_id,
+            FeedbackNote.user_id == current_user.id,
+        ).order_by(desc(FeedbackNote.created_at))
     ).all()
 
     items = "".join([

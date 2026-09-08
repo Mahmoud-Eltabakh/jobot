@@ -1,11 +1,12 @@
 """Tests for CV document parsing and structured profile extraction."""
 
 import io
-import pytest
+
 import pypdf
+import pytest
 from sqlmodel import Session
 
-from app.ai.cv_parser import CVParser, MAX_FILE_SIZE
+from app.ai.cv_parser import MAX_FILE_SIZE, CVParser
 from app.ai.profile_extractor import (
     ExtractedProfile,
     _fallback_heuristic_extraction,
@@ -13,7 +14,6 @@ from app.ai.profile_extractor import (
     save_profile_to_db,
 )
 from app.db.database import engine, init_db
-from app.db.models import UserProfile
 
 
 @pytest.fixture(autouse=True)

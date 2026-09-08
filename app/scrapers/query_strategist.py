@@ -2,12 +2,13 @@
 
 import json
 import logging
-from typing import Any, Optional
+
 from sqlmodel import Session, select
 
 from app.ai.client import BaseAIClient, get_ai_client
 from app.ai.evaluator import extract_keywords_from_profile
 from app.db.models import FilterRule, SearchConfig, UserProfile
+from app.db.ownership import get_user_profile
 
 logger = logging.getLogger("jobot.scrapers.query_strategist")
 
@@ -41,26 +42,31 @@ class AIQueryStrategist:
         cls,
         session: Session,
         max_queries: int = 5,
-        ai_client: Optional[BaseAIClient] = None,
+        ai_client: BaseAIClient | None = None,
+        user_id: int | None = None,
     ) -> list[tuple[str, str, str]]:
         """
         Generate optimized (platform, keywords, location) search queries using LLM.
         """
         # 1. Check if user configured explicit SearchConfig records
-        configs = session.exec(
-            select(SearchConfig).where(SearchConfig.is_active.is_(True))
-        ).all()
+        config_stmt = select(SearchConfig).where(SearchConfig.is_active.is_(True))
+        if user_id is not None:
+            config_stmt = config_stmt.where(SearchConfig.user_id == user_id)
+        configs = session.exec(config_stmt).all()
         if configs:
             return [(c.source, c.keywords, c.location) for c in configs]
 
-        profile = session.exec(select(UserProfile)).first()
+        profile = get_user_profile(session, user_id, decrypt=True) if user_id is not None else session.exec(select(UserProfile)).first()
         if not profile:
             return []
 
         titles = json.loads(profile.target_titles_json or "[]")
         skills = extract_keywords_from_profile(profile)
         locations = json.loads(profile.target_locations_json or "[]")
-        rules = session.exec(select(FilterRule).where(FilterRule.is_active.is_(True))).all()
+        rule_stmt = select(FilterRule).where(FilterRule.is_active.is_(True))
+        if user_id is not None:
+            rule_stmt = rule_stmt.where(FilterRule.user_id == user_id)
+        rules = session.exec(rule_stmt).all()
         blacklists = [r.pattern for r in rules]
 
         primary_loc = locations[0] if locations else ""
@@ -88,12 +94,9 @@ Generate optimized search queries combining candidate target titles and profile 
             )
 
             clean_json = response.strip()
-            if clean_json.startswith("```json"):
-                clean_json = clean_json[7:]
-            if clean_json.startswith("```"):
-                clean_json = clean_json[3:]
-            if clean_json.endswith("```"):
-                clean_json = clean_json[:-3]
+            clean_json = clean_json.removeprefix("```json")
+            clean_json = clean_json.removeprefix("```")
+            clean_json = clean_json.removesuffix("```")
             clean_json = clean_json.strip()
 
             parsed = json.loads(clean_json)

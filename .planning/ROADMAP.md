@@ -105,3 +105,22 @@
   - `13-01-PLAN.md`: Tunnel design, SSH key setup, and secure remote access architecture. — ✓ Complete
   - `13-02-PLAN.md`: Browser/mobile access flow, forwarding rules, and user guidance for phone usage. — ✓ Complete
   - `13-03-PLAN.md`: Security verification, operational checklist, and support docs. — ✓ Complete
+  - `13-04-PLAN.md`: Tailscale SSH Settings panel, bounded runtime status detection, persisted connection preferences, and input validation. — ✓ Complete
+
+## Milestone 4: Experience, Education & Project Signal Scoring (Complete)
+
+### Phase 14: Experience, Education & Project Signal Scoring (Complete)
+- **Goal**: Use the candidate’s historical skills, education, and prior project experience as first-class signals in the fit score so the model reflects their real profile quality, not only the latest CV keywords.
+- **Plans**:
+  - `14-01-PLAN.md`: Profile signal model review and scoring design for skills, education, experience, and project evidence. — ✓ Complete
+  - `14-02-PLAN.md`: Data model and UI updates to display, sort, and edit parsed project and education sections. — ✓ Complete
+  - `14-03-PLAN.md`: Scoring pipeline updates, calibration settings, and verification of profile-aware filtering. — ✓ Complete
+
+## Milestone 5: Account Login & Per-User Encrypted Data (Complete)
+
+### Phase 15: Secure User Accounts and Encrypted Personal Data (Complete)
+- **Goal**: Add account login, user isolation, and encrypted storage for sensitive profile and AI data while preserving Jobot’s local-first, open-source architecture.
+- **Plans**:
+  - `15-01-PLAN.md`: Authentication model, user table design, password hashing, and session lifecycle. — ✓ Complete
+  - `15-02-PLAN.md`: Encryption and key management for CV data, credentials, LinkedIn cookies, and per-user data storage. — ✓ Complete
+  - `15-03-PLAN.md`: UI login flow, account isolation, and verification of multi-user security boundaries. — ✓ Complete

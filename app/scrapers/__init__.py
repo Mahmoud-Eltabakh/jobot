@@ -7,9 +7,9 @@ from app.scrapers.stepstone import StepStoneScraper
 
 __all__ = [
     "BaseScraper",
+    "JobSpyScraper",
     "ScrapedJob",
+    "StepStoneScraper",
     "compute_dedup_hash",
     "save_scraped_jobs",
-    "JobSpyScraper",
-    "StepStoneScraper",
 ]

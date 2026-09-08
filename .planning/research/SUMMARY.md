@@ -57,3 +57,9 @@ Building an automated personal job search pipeline with local AI and a modern Py
 - **Recommended Pattern**: Use SSH with key-based authentication and a remote forwarding / reverse tunnel configuration on a host that can be reached from the phone; bind the browser to the tunnel endpoint instead of opening a random inbound port on the workstation.
 - **Security Baseline**: Prefer key-based auth, restrict SSH to the minimum required commands, use local-only binding where possible, and avoid opening wildcards or public ports in the primary environment.
 - **Operational Constraint**: The goal is mobile convenience without moving the actual application brain away from the main host. The phone acts as a client viewer, not a second server runtime.
+
+### 6. Experience, Education & Project Signal Scoring
+- **Candidate Background as Signal**: The scoring model should evaluate not only the latest skill list but also prior roles, education relevance, certifications, and project outcomes to surface stronger matches.
+- **Structured Data First**: Parsed CV and LinkedIn data should keep experience, education, and project sections separate from raw text so the model can compute relevance by domain, recency, and role coverage.
+- **Bias Prevention**: Historical experience should complement recent skills rather than replace them, and calibration should maintain user control over weight distribution to avoid overfitting on older or unrelated background.
+- **Operational Requirement**: Users must be able to sort, edit, and re-score these sections without losing merged data; the final score should reflect a joined picture of their real professional evidence.

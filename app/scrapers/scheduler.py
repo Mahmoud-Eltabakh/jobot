@@ -3,8 +3,8 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, select
 
@@ -12,7 +12,8 @@ from app.ai.client import BaseAIClient, get_ai_client
 from app.ai.evaluator import JobEvaluator, extract_keywords_from_profile
 from app.core.config import get_settings
 from app.db.database import engine, get_app_setting, set_app_setting
-from app.db.models import Job, SearchConfig, UserProfile, utc_now
+from app.db.models import SearchConfig, UserProfile, utc_now
+from app.db.ownership import get_user_profile
 from app.scrapers.base import ScrapedJob
 from app.scrapers.dedup import save_scraped_jobs
 from app.scrapers.filter_pipeline import JobFilterPipeline
@@ -38,9 +39,10 @@ class ScraperPipeline:
     def build_profile_search_queries(
         cls,
         session: Session,
-        override_keywords: Optional[str] = None,
-        override_location: Optional[str] = None,
-        max_queries: Optional[int] = None,
+        override_keywords: str | None = None,
+        override_location: str | None = None,
+        max_queries: int | None = None,
+        user_id: int | None = None,
     ) -> list[tuple[str, str, str]]:
         """
         Build an intelligent matrix of search queries combining primary target titles with active profile skills.
@@ -50,15 +52,16 @@ class ScraperPipeline:
         if override_keywords and override_keywords.strip():
             return [("all", override_keywords.strip(), override_location or "")]
 
-        search_configs = session.exec(
-            select(SearchConfig).where(SearchConfig.is_active.is_(True))
-        ).all()
+        config_stmt = select(SearchConfig).where(SearchConfig.is_active.is_(True))
+        if user_id is not None:
+            config_stmt = config_stmt.where(SearchConfig.user_id == user_id)
+        search_configs = session.exec(config_stmt).all()
 
         if search_configs:
             return [(sc.source, sc.keywords, sc.location) for sc in search_configs]
 
         # Dynamic query generation from candidate UserProfile
-        profile = session.exec(select(UserProfile)).first()
+        profile = get_user_profile(session, user_id, decrypt=True) if user_id is not None else session.exec(select(UserProfile)).first()
         queries: list[tuple[str, str, str]] = []
 
         if profile:
@@ -99,10 +102,11 @@ class ScraperPipeline:
     async def run_full_pipeline(
         cls,
         session: Session,
-        ai_client: Optional[BaseAIClient] = None,
-        override_keywords: Optional[str] = None,
-        override_location: Optional[str] = None,
-        results_wanted_per_source: Optional[int] = None,
+        ai_client: BaseAIClient | None = None,
+        override_keywords: str | None = None,
+        override_location: str | None = None,
+        results_wanted_per_source: int | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         """
         Execute full end-to-end job discovery pipeline.
@@ -130,6 +134,7 @@ class ScraperPipeline:
                     session=session,
                     max_queries=None,
                     ai_client=client,
+                    user_id=user_id,
                 )
             logger.info("Generated %d search query batches from AI Strategist & candidate profile", len(search_queries))
 
@@ -165,13 +170,15 @@ class ScraperPipeline:
                     logger.warning("StepStone scrape failed for '%s': %s", kw, err)
 
             # Deduplicate & persist raw ingested records
-            inserted_jobs, skipped_dups = save_scraped_jobs(scraped_jobs, session)
+            inserted_jobs, skipped_dups = save_scraped_jobs(scraped_jobs, session, user_id=user_id)
             logger.info("Stage 1 (SCRAPE) complete: %d fetched, %d new inserted, %d duplicates skipped", len(scraped_jobs), len(inserted_jobs), skipped_dups)
 
             # ==========================================
             # STAGE 2: FILTER
             # ==========================================
-            approved_for_ai, filtered_out = JobFilterPipeline.apply_filters_and_save(inserted_jobs, session)
+            approved_for_ai, filtered_out = JobFilterPipeline.apply_filters_and_save(
+                inserted_jobs, session, user_id=user_id
+            )
             logger.info("Stage 2 (FILTER) complete: %d approved for scoring, %d blacklisted/filtered out", len(approved_for_ai), len(filtered_out))
 
             # ==========================================
@@ -179,11 +186,14 @@ class ScraperPipeline:
             # ==========================================
             evaluated_count = 0
             for job in approved_for_ai:
+                if job.id is None:
+                    continue
                 try:
                     await JobEvaluator.evaluate_and_update_job(
                         job_id=job.id,
                         session=session,
                         ai_client=client,
+                        user_id=user_id,
                     )
                     evaluated_count += 1
                 except Exception as err:
@@ -250,7 +260,7 @@ class JobotScheduler:
 
 
 # Global scheduler singleton
-_scheduler_instance: Optional[JobotScheduler] = None
+_scheduler_instance: JobotScheduler | None = None
 
 
 def get_scheduler() -> JobotScheduler:

@@ -3,11 +3,13 @@
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.db.models import UserProfile, utc_now
+from app.db.ownership import encrypt_profile, get_user_profile
 
 logger = logging.getLogger("jobot.ai.profile_extractor")
 
@@ -16,18 +18,19 @@ class ExtractedProfile(BaseModel):
     """Structured candidate profile extracted from CV text or LinkedIn."""
 
     full_name: str = Field(default="", description="Full name of candidate")
-    headline: Optional[str] = Field(default=None, description="Professional headline or title")
+    headline: str | None = Field(default=None, description="Professional headline or title")
     summary: str = Field(default="", description="Executive summary / professional bio")
     skills: list[str] = Field(default_factory=list, description="Extracted technical and domain skills")
     active_search_skills: list[str] = Field(default_factory=list, description="Skills selected for active scraper queries")
     experience_years: float = Field(default=0.0, description="Estimated years of relevant experience")
     target_titles: list[str] = Field(default_factory=list, description="Target job titles or role matches")
     target_locations: list[str] = Field(default_factory=list, description="Target locations or remote preference")
-    target_salary_min: Optional[float] = Field(default=None, description="Minimum expected compensation")
+    target_salary_min: float | None = Field(default=None, description="Minimum expected compensation")
     work_preference: str = Field(default="remote_first", description="Work model preference")
     experience_history: list[dict[str, Any]] = Field(default_factory=list, description="Structured past work experiences")
     education: list[dict[str, str]] = Field(default_factory=list, description="Education and degrees")
-    linkedin_url: Optional[str] = Field(default=None, description="LinkedIn profile URL")
+    projects: list[dict[str, Any]] = Field(default_factory=list, description="Candidate projects, portfolio work, and applied technologies")
+    linkedin_url: str | None = Field(default=None, description="LinkedIn profile URL")
 
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert technical resume parser.
@@ -53,7 +56,7 @@ Guidelines:
 
 async def generate_candidate_bio(
     profile_data: dict[str, Any],
-    ai_client: Optional[Any] = None,
+    ai_client: Any | None = None,
 ) -> str:
     """Generate a professional executive summary / bio using AI based on candidate details."""
     from app.ai.client import get_ai_client
@@ -148,7 +151,7 @@ def _fallback_heuristic_extraction(raw_text: str) -> ExtractedProfile:
 
     return ExtractedProfile(
         full_name=first_line[:50] if first_line else "",
-        summary=f"Profile parsed from resume text." if found_skills else "",
+        summary="Profile parsed from resume text." if found_skills else "",
         skills=found_skills,
         active_search_skills=found_skills[:5],
         experience_years=exp_years,
@@ -156,18 +159,19 @@ def _fallback_heuristic_extraction(raw_text: str) -> ExtractedProfile:
         target_locations=[],
         target_salary_min=None,
         education=[],
+        projects=[],
     )
 
 
 async def extract_profile_from_text(
     raw_text: str,
-    ai_client: Optional[Any] = None,
+    ai_client: Any | None = None,
 ) -> ExtractedProfile:
     """Extract structured candidate profile from raw CV text using LLM or fallback."""
     if not raw_text.strip():
         return ExtractedProfile()
 
-    extracted: Optional[ExtractedProfile] = None
+    extracted: ExtractedProfile | None = None
     if ai_client is not None:
         try:
             prompt = f"Extract structured candidate profile from the following resume text:\n\n{raw_text[:8000]}"
@@ -178,12 +182,9 @@ async def extract_profile_from_text(
             )
             # Clean possible markdown wrapping
             clean_json = response.strip()
-            if clean_json.startswith("```json"):
-                clean_json = clean_json[7:]
-            if clean_json.startswith("```"):
-                clean_json = clean_json[3:]
-            if clean_json.endswith("```"):
-                clean_json = clean_json[:-3]
+            clean_json = clean_json.removeprefix("```json")
+            clean_json = clean_json.removeprefix("```")
+            clean_json = clean_json.removesuffix("```")
             clean_json = clean_json.strip()
 
             data = json.loads(clean_json)
@@ -220,15 +221,17 @@ def save_profile_to_db(
     raw_text: str,
     session: Session,
     source_type: str = "cv",
+    user_id: int | None = None,
 ) -> UserProfile:
     """Persist or update primary UserProfile in SQLite database, joining CV and LinkedIn data."""
-    user_profile = session.exec(select(UserProfile)).first()
+    user_profile = get_user_profile(session, user_id, decrypt=True) if user_id is not None else session.exec(select(UserProfile)).first()
     
     new_skills = list(dict.fromkeys(profile.skills))
     new_active_skills = profile.active_search_skills if profile.active_search_skills else new_skills
     
     if not user_profile:
         user_profile = UserProfile(
+            user_id=user_id,
             full_name=profile.full_name,
             headline=profile.headline or (profile.target_titles[0] if profile.target_titles else None),
             bio=profile.summary,
@@ -241,6 +244,7 @@ def save_profile_to_db(
             active_search_skills_json=json.dumps(new_active_skills),
             experience_history_json=json.dumps(profile.experience_history),
             education_json=json.dumps(profile.education),
+            projects_json=json.dumps(profile.projects),
             cv_raw_text=raw_text if source_type == "cv" else None,
             linkedin_raw_text=raw_text if source_type == "linkedin" else None,
             linkedin_url=profile.linkedin_url,
@@ -249,9 +253,7 @@ def save_profile_to_db(
         session.add(user_profile)
     else:
         # 1. Full name & headline
-        if profile.full_name and (not user_profile.full_name or user_profile.full_name == "Candidate"):
-            user_profile.full_name = profile.full_name
-        elif profile.full_name:
+        if profile.full_name and (not user_profile.full_name or user_profile.full_name == "Candidate") or profile.full_name:
             user_profile.full_name = profile.full_name
 
         if profile.headline:
@@ -354,7 +356,26 @@ def save_profile_to_db(
 
         user_profile.education_json = json.dumps(merged_edu)
 
-        # 10. Store separate raw texts without overriding
+        # 10. Projects - Joined & Deduplicated by name
+        existing_projects = []
+        if user_profile.projects_json:
+            try:
+                existing_projects = json.loads(user_profile.projects_json)
+            except Exception:
+                pass
+
+        merged_projects = existing_projects.copy()
+        seen_projects = {str(p.get("name") or p.get("title") or "").lower() for p in existing_projects if isinstance(p, dict)}
+        for new_project in profile.projects:
+            if isinstance(new_project, dict):
+                key = str(new_project.get("name") or new_project.get("title") or "").lower()
+                if key and key not in seen_projects:
+                    seen_projects.add(key)
+                    merged_projects.append(new_project)
+
+        user_profile.projects_json = json.dumps(merged_projects)
+
+        # 11. Store separate raw texts without overriding
         if source_type == "cv" and raw_text:
             user_profile.cv_raw_text = raw_text
         elif source_type == "linkedin" and raw_text:
@@ -366,6 +387,8 @@ def save_profile_to_db(
         user_profile.updated_at = utc_now()
         session.add(user_profile)
 
+    if user_id is not None:
+        encrypt_profile(user_profile, user_id)
     session.commit()
     session.refresh(user_profile)
     logger.info("Updated & Joined UserProfile id=%d for '%s' (Source: %s)", user_profile.id, user_profile.full_name, source_type)

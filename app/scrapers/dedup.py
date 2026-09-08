@@ -3,7 +3,7 @@
 import hashlib
 import logging
 import re
-from typing import Optional
+
 from sqlmodel import Session, select
 
 from app.db.models import Job, JobStatus, utc_now
@@ -12,7 +12,7 @@ from app.scrapers.base import ScrapedJob
 logger = logging.getLogger("jobot.scrapers.dedup")
 
 
-def normalize_string(val: Optional[str]) -> str:
+def normalize_string(val: str | None) -> str:
     """Normalize string for hash stability: lowercase, remove non-alphanumeric/spaces, collapse whitespace."""
     if not val:
         return ""
@@ -37,6 +37,7 @@ def compute_dedup_hash(company: str, title: str, location: str) -> str:
 def save_scraped_jobs(
     scraped_jobs: list[ScrapedJob],
     session: Session,
+    user_id: int | None = None,
 ) -> tuple[list[Job], int]:
     """
     Deduplicate and insert new ScrapedJob records into SQLite.
@@ -49,7 +50,7 @@ def save_scraped_jobs(
 
     # Precompute hashes
     jobs_with_hashes: list[tuple[ScrapedJob, str]] = [
-        (sj, compute_dedup_hash(sj.company, sj.title, sj.location))
+        (sj, compute_dedup_hash(sj.company, sj.title, f"{sj.location}|owner:{user_id}"))
         for sj in scraped_jobs
     ]
 
@@ -72,6 +73,7 @@ def save_scraped_jobs(
 
         seen_in_batch_set.add(h)
         db_job = Job(
+            user_id=user_id,
             source=sj.source,
             source_id=sj.source_id,
             title=sj.title,

@@ -2,15 +2,23 @@
 
 import json
 import logging
-from datetime import datetime
-from typing import Any, Optional
-from sqlmodel import Session, select, func
-from sqlalchemy import update
+import time
+from typing import Any
 
-from app.db.database import engine, get_app_setting, set_app_setting
+from sqlalchemy import update
+from sqlalchemy.exc import OperationalError
+from sqlmodel import Session, func, select
+
+from app.db.database import get_app_setting, set_app_setting
 from app.db.models import ScrapeTask, utc_now
 
 logger = logging.getLogger("jobot.queue.task_queue")
+
+# Maximum allowed serialized payload size (64 KiB) to prevent resource exhaustion
+MAX_PAYLOAD_BYTES = 65_536
+
+# Whitelist of valid task types accepted by the background worker
+ALLOWED_TASK_TYPES = frozenset({"scrape_query", "evaluate_job", "full_discovery", "feedback_tune"})
 
 
 class TaskQueue:
@@ -38,11 +46,26 @@ class TaskQueue:
         task_type: str,
         payload: dict[str, Any],
         max_retries: int = 3,
+        user_id: int | None = None,
     ) -> ScrapeTask:
-        """Enqueue a new task into SQLite."""
+        """Enqueue a task carrying the account boundary into background work.
+
+        Raises:
+            ValueError: If task_type is not in ALLOWED_TASK_TYPES or payload exceeds MAX_PAYLOAD_BYTES.
+        """
+        if task_type not in ALLOWED_TASK_TYPES:
+            raise ValueError(
+                f"Unknown task type '{task_type}'. Allowed types: {sorted(ALLOWED_TASK_TYPES)}"
+            )
+        payload_json = json.dumps(payload)
+        if len(payload_json.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+            raise ValueError(
+                f"Task payload exceeds maximum allowed size of {MAX_PAYLOAD_BYTES} bytes"
+            )
         task = ScrapeTask(
+            user_id=user_id,
             task_type=task_type,
-            payload_json=json.dumps(payload),
+            payload_json=payload_json,
             status="pending",
             retries=0,
             max_retries=max_retries,
@@ -56,37 +79,57 @@ class TaskQueue:
         return task
 
     @classmethod
-    def claim_next_task(cls, session: Session) -> Optional[ScrapeTask]:
-        """Claim the next available pending task atomically if queue is not paused."""
+    def claim_next_task(cls, session: Session) -> ScrapeTask | None:
+        """Claim the next available pending task atomically if queue is not paused.
+
+        Implements retry logic with exponential backoff to handle SQLite write contention (database is locked).
+        """
         if cls.is_paused(session):
             return None
 
-        candidate = session.exec(
-            select(ScrapeTask)
-            .where(ScrapeTask.status == "pending")
-            .order_by(ScrapeTask.created_at)
-        ).first()
+        max_retries = 5
+        base_delay = 0.1
 
-        if candidate:
-            claimed_at = utc_now()
-            result = session.exec(
-                update(ScrapeTask)
-                .where(ScrapeTask.id == candidate.id, ScrapeTask.status == "pending")
-                .values(status="in_progress", updated_at=claimed_at)
-            )
-            session.commit()
-            if result.rowcount:
-                task = session.get(ScrapeTask, candidate.id)
-                if task:
-                    return task
-        return None
+        for attempt in range(max_retries):
+            try:
+                candidate = session.exec(
+                    select(ScrapeTask)
+                    .where(ScrapeTask.status == "pending")
+                    .order_by(ScrapeTask.created_at)
+                ).first()
+
+                if candidate:
+                    claimed_at = utc_now()
+                    result = session.exec(
+                        update(ScrapeTask)
+                        .where(ScrapeTask.id == candidate.id, ScrapeTask.status == "pending")
+                        .values(status="in_progress", updated_at=claimed_at)
+                    )
+                    session.commit()
+                    if result.rowcount:
+                        task = session.get(ScrapeTask, candidate.id)
+                        if task:
+                            return task
+                return None
+            except OperationalError as err:
+                if "database is locked" in str(err).lower():
+                    session.rollback()
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning("Database locked during claim_next_task, retrying in %.2fs (attempt %d/%d)", delay, attempt + 1, max_retries)
+                        time.sleep(delay)
+                    else:
+                        logger.error("Failed to claim task due to persistent database lock after %d attempts", max_retries)
+                        return None
+                else:
+                    raise
 
     @classmethod
     def mark_completed(
         cls,
         session: Session,
         task_id: int,
-    ) -> Optional[ScrapeTask]:
+    ) -> ScrapeTask | None:
         """Mark a task as completed."""
         task = session.get(ScrapeTask, task_id)
         if task:
@@ -105,7 +148,7 @@ class TaskQueue:
         session: Session,
         task_id: int,
         error_message: str,
-    ) -> Optional[ScrapeTask]:
+    ) -> ScrapeTask | None:
         """Mark a task as failed or requeue if retries remain."""
         task = session.get(ScrapeTask, task_id)
         if task:
@@ -126,9 +169,12 @@ class TaskQueue:
         return task
 
     @classmethod
-    def retry_task(cls, session: Session, task_id: int) -> Optional[ScrapeTask]:
+    def retry_task(cls, session: Session, task_id: int, user_id: int | None = None) -> ScrapeTask | None:
         """Reset an individual task back to pending status for retry."""
-        task = session.get(ScrapeTask, task_id)
+        stmt = select(ScrapeTask).where(ScrapeTask.id == task_id)
+        if user_id is not None:
+            stmt = stmt.where(ScrapeTask.user_id == user_id)
+        task = session.exec(stmt).first()
         if task:
             task.status = "pending"
             task.retries = 0
@@ -141,9 +187,12 @@ class TaskQueue:
         return task
 
     @classmethod
-    def delete_task(cls, session: Session, task_id: int) -> bool:
+    def delete_task(cls, session: Session, task_id: int, user_id: int | None = None) -> bool:
         """Delete an individual task from SQLite queue."""
-        task = session.get(ScrapeTask, task_id)
+        stmt = select(ScrapeTask).where(ScrapeTask.id == task_id)
+        if user_id is not None:
+            stmt = stmt.where(ScrapeTask.user_id == user_id)
+        task = session.exec(stmt).first()
         if task:
             session.delete(task)
             session.commit()
@@ -152,11 +201,12 @@ class TaskQueue:
         return False
 
     @classmethod
-    def clear_completed(cls, session: Session) -> int:
+    def clear_completed(cls, session: Session, user_id: int | None = None) -> int:
         """Delete all completed tasks from SQLite queue."""
-        completed_tasks = session.exec(
-            select(ScrapeTask).where(ScrapeTask.status == "completed")
-        ).all()
+        stmt = select(ScrapeTask).where(ScrapeTask.status == "completed")
+        if user_id is not None:
+            stmt = stmt.where(ScrapeTask.user_id == user_id)
+        completed_tasks = session.exec(stmt).all()
         count = 0
         for t in completed_tasks:
             session.delete(t)
@@ -166,11 +216,18 @@ class TaskQueue:
         return count
 
     @classmethod
-    def clear_all(cls, session: Session, include_in_progress: bool = False) -> int:
+    def clear_all(
+        cls,
+        session: Session,
+        include_in_progress: bool = False,
+        user_id: int | None = None,
+    ) -> int:
         """Delete all queue tasks (optionally including in-progress tasks)."""
         stmt = select(ScrapeTask)
         if not include_in_progress:
             stmt = stmt.where(ScrapeTask.status != "in_progress")
+        if user_id is not None:
+            stmt = stmt.where(ScrapeTask.user_id == user_id)
         tasks = session.exec(stmt).all()
         count = 0
         for t in tasks:
@@ -181,11 +238,12 @@ class TaskQueue:
         return count
 
     @classmethod
-    def retry_all_failed(cls, session: Session) -> int:
+    def retry_all_failed(cls, session: Session, user_id: int | None = None) -> int:
         """Reset all failed tasks back to pending status."""
-        failed_tasks = session.exec(
-            select(ScrapeTask).where(ScrapeTask.status == "failed")
-        ).all()
+        stmt = select(ScrapeTask).where(ScrapeTask.status == "failed")
+        if user_id is not None:
+            stmt = stmt.where(ScrapeTask.user_id == user_id)
+        failed_tasks = session.exec(stmt).all()
         count = 0
         for t in failed_tasks:
             t.status = "pending"
@@ -199,12 +257,18 @@ class TaskQueue:
         return count
 
     @classmethod
-    def get_stats(cls, session: Session) -> dict[str, Any]:
+    def get_stats(cls, session: Session, user_id: int | None = None) -> dict[str, Any]:
         """Return total counts of tasks grouped by status and worker state."""
-        pending = session.exec(select(func.count(ScrapeTask.id)).where(ScrapeTask.status == "pending")).one()
-        in_progress = session.exec(select(func.count(ScrapeTask.id)).where(ScrapeTask.status == "in_progress")).one()
-        completed = session.exec(select(func.count(ScrapeTask.id)).where(ScrapeTask.status == "completed")).one()
-        failed = session.exec(select(func.count(ScrapeTask.id)).where(ScrapeTask.status == "failed")).one()
+        def count_status(status: str) -> int:
+            stmt = select(func.count(ScrapeTask.id)).where(ScrapeTask.status == status)
+            if user_id is not None:
+                stmt = stmt.where(ScrapeTask.user_id == user_id)
+            return session.exec(stmt).one() or 0
+
+        pending = count_status("pending")
+        in_progress = count_status("in_progress")
+        completed = count_status("completed")
+        failed = count_status("failed")
         paused = cls.is_paused(session)
         return {
             "pending": pending or 0,

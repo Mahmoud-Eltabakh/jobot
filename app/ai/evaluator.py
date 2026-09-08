@@ -3,7 +3,8 @@
 import json
 import logging
 import re
-from typing import Any, Literal, Optional
+from typing import Literal
+
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -29,7 +30,7 @@ def is_skill_present(skill: str, text_lower: str) -> bool:
     return False
 
 
-def extract_keywords_from_profile(profile: Optional[UserProfile]) -> list[str]:
+def extract_keywords_from_profile(profile: UserProfile | None) -> list[str]:
     """Extract and normalize all unique skill keywords directly from candidate profile."""
     if not profile:
         return []
@@ -71,7 +72,10 @@ class ScoringBreakdown(BaseModel):
     skills_score: int = Field(default=0, ge=0, le=100, description="Technical and domain skills alignment (0-100)")
     seniority_score: int = Field(default=0, ge=0, le=100, description="Role title and seniority alignment (0-100)")
     work_model_score: int = Field(default=0, ge=0, le=100, description="Remote and location preference alignment (0-100)")
-    semantic_similarity: Optional[float] = Field(default=None, description="Vector embedding similarity score (0.0 to 1.0)")
+    historical_skills_score: int = Field(default=0, ge=0, le=100, description="Past role and prior experience skill overlap (0-100)")
+    education_score: int = Field(default=0, ge=0, le=100, description="Education relevance to target role (0-100)")
+    project_score: int = Field(default=0, ge=0, le=100, description="Project skill evidence and technology match (0-100)")
+    semantic_similarity: float | None = Field(default=None, description="Vector embedding similarity score (0.0 to 1.0)")
     feedback_adjustment: int = Field(default=0, description="Score delta from historical user feedback vectors")
     matched_skills: list[str] = Field(default_factory=list, description="Skills present in both profile and job posting")
     missing_skills: list[str] = Field(default_factory=list, description="Skills required by job absent from candidate profile")
@@ -105,7 +109,7 @@ class JobFitEvaluation(BaseModel):
         default="Potential Match",
         description="High-level category recommendation",
     )
-    breakdown: Optional[ScoringBreakdown] = Field(
+    breakdown: ScoringBreakdown | None = Field(
         default=None,
         description="Explainable multi-factor scoring breakdown",
     )
@@ -139,12 +143,9 @@ class JobEvaluator:
     def _clean_json_response(raw_text: str) -> str:
         """Strip possible markdown code block fences."""
         text = raw_text.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
+        text = text.removeprefix("```json")
+        text = text.removeprefix("```")
+        text = text.removesuffix("```")
         return text.strip()
 
     @classmethod
@@ -214,14 +215,14 @@ Please evaluate the match and return the structured JSON assessment."""
         cls,
         candidate_summary: str,
         job_description: str,
-        candidate_skills: Optional[list[str]] = None,
-        target_titles: Optional[list[str]] = None,
-        work_preference: Optional[str] = None,
-        target_locations: Optional[list[str]] = None,
-        experience_years: Optional[float] = None,
-        semantic_similarity: Optional[float] = None,
+        candidate_skills: list[str] | None = None,
+        target_titles: list[str] | None = None,
+        work_preference: str | None = None,
+        target_locations: list[str] | None = None,
+        experience_years: float | None = None,
+        semantic_similarity: float | None = None,
         feedback_delta: int = 0,
-        scoring_weights: Optional[dict[str, float]] = None,
+        scoring_weights: dict[str, float] | None = None,
     ) -> JobFitEvaluation:
         """
         Compute dynamic, explainable multi-factor fit score and normalized sub-factor alignments:
@@ -242,9 +243,21 @@ Please evaluate the match and return the structured JSON assessment."""
                     "location": float(get_app_setting("weight_location", 10)),
                     "experience": float(get_app_setting("weight_experience", 5)),
                     "vector": float(get_app_setting("weight_vector", 20)),
+                    "history_skills": float(get_app_setting("weight_history_skills", 10)),
+                    "education": float(get_app_setting("weight_education", 5)),
+                    "projects": float(get_app_setting("weight_projects", 10)),
                 }
             except Exception:
-                scoring_weights = {"skills": 70.0, "title": 15.0, "location": 10.0, "experience": 5.0, "vector": 20.0}
+                scoring_weights = {
+                    "skills": 70.0,
+                    "title": 15.0,
+                    "location": 10.0,
+                    "experience": 5.0,
+                    "vector": 20.0,
+                    "history_skills": 10.0,
+                    "education": 5.0,
+                    "projects": 10.0,
+                }
 
         # 1. Resolve candidate skills
         skills = list(candidate_skills) if candidate_skills else []
@@ -361,7 +374,72 @@ Please evaluate the match and return the structured JSON assessment."""
         exp_score = int(min(100.0, (cand_exp / max(1.0, req_exp_benchmark)) * 100.0))
 
         # ==========================================
-        # FACTOR 5: VECTOR RAG SIMILARITY (Normalized 0-100%)
+        # FACTOR 5: HISTORICAL SKILLS / EXPERIENCE SIGNALS
+        # ==========================================
+        historical_context = candidate_summary.lower()
+        history_skills = []
+        history_match_total = 0
+        history_skill_tokens = set()
+        for match in re.findall(r"Experience History:\s*(\[[\s\S]*?\])\s*(?:\n|$)", candidate_summary, re.IGNORECASE):
+            try:
+                entries = json.loads(match)
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        text = " ".join(str(v) for v in entry.values() if v is not None)
+                        history_skill_tokens.update(re.findall(r"[A-Za-z][A-Za-z0-9+#.-]{2,}", text))
+            except Exception:
+                pass
+        for match in re.findall(r"Projects:\s*(\[[\s\S]*?\])\s*(?:\n|$)", candidate_summary, re.IGNORECASE):
+            try:
+                entries = json.loads(match)
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        tech = entry.get("technologies") or entry.get("tech_stack") or []
+                        if isinstance(tech, list):
+                            history_skill_tokens.update(str(item) for item in tech)
+                        text = " ".join(str(v) for v in entry.values() if v is not None)
+                        history_skill_tokens.update(re.findall(r"[A-Za-z][A-Za-z0-9+#.-]{2,}", text))
+            except Exception:
+                pass
+        if history_skill_tokens:
+            history_skills = [s for s in sorted(history_skill_tokens) if s.lower() in job_text or is_skill_present(s, job_text)]
+            history_match_total = len(history_skills)
+        historical_skills_score = int(min(100.0, (history_match_total / max(1, len(history_skill_tokens))) * 100.0)) if history_skill_tokens else 0
+
+        # Education relevance
+        education_score = 0
+        education_terms = set()
+        for match in re.findall(r"Education:\s*(\[[\s\S]*?\])\s*(?:\n|$)", candidate_summary, re.IGNORECASE):
+            try:
+                entries = json.loads(match)
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        for value in (entry.get("school", ""), entry.get("degree", ""), entry.get("field_of_study", "")):
+                            education_terms.update(re.findall(r"[A-Za-z][A-Za-z0-9+#.-]{2,}", str(value)))
+            except Exception:
+                pass
+        if education_terms:
+            edu_match = [term for term in sorted(education_terms) if is_skill_present(term, job_text)]
+            education_score = int(min(100.0, (len(edu_match) / max(1, len(education_terms))) * 100.0))
+
+        # Projects evidence
+        project_score = 0
+        project_terms = set()
+        for match in re.findall(r"Projects:\s*(\[[\s\S]*?\])\s*(?:\n|$)", candidate_summary, re.IGNORECASE):
+            try:
+                entries = json.loads(match)
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        project_text = " ".join(str(v) for v in entry.values() if v is not None)
+                        project_terms.update(re.findall(r"[A-Za-z][A-Za-z0-9+#.-]{2,}", project_text))
+            except Exception:
+                pass
+        if project_terms:
+            project_match = [term for term in sorted(project_terms) if is_skill_present(term, job_text)]
+            project_score = int(min(100.0, (len(project_match) / max(1, len(project_terms))) * 100.0))
+
+        # ==========================================
+        # FACTOR 6: VECTOR RAG SIMILARITY (Normalized 0-100%)
         # ==========================================
         vec_score = int(min(100.0, (semantic_similarity or 0.0) * 100.0)) if semantic_similarity is not None else 0
 
@@ -379,8 +457,11 @@ Please evaluate the match and return the structured JSON assessment."""
             w_loc = max(0.0, float(scoring_weights.get("location", 10)))
             w_exp = max(0.0, float(scoring_weights.get("experience", 5)))
             w_vec = max(0.0, float(scoring_weights.get("vector", 20))) if semantic_similarity is not None else 0.0
+            w_history = max(0.0, float(scoring_weights.get("history_skills", 10)))
+            w_edu = max(0.0, float(scoring_weights.get("education", 5)))
+            w_projects = max(0.0, float(scoring_weights.get("projects", 10)))
 
-            total_weight = w_skills + w_title + w_loc + w_exp + w_vec
+            total_weight = w_skills + w_title + w_loc + w_exp + w_vec + w_history + w_edu + w_projects
             if total_weight > 0:
                 composite_score = (
                     (skills_score * w_skills)
@@ -388,6 +469,9 @@ Please evaluate the match and return the structured JSON assessment."""
                     + (work_model_score * w_loc)
                     + (exp_score * w_exp)
                     + (vec_score * w_vec)
+                    + (historical_skills_score * w_history)
+                    + (education_score * w_edu)
+                    + (project_score * w_projects)
                 ) / total_weight
             else:
                 composite_score = float(skills_score)
@@ -437,6 +521,9 @@ Please evaluate the match and return the structured JSON assessment."""
             skills_score=skills_score,
             seniority_score=title_seniority_score,
             work_model_score=work_model_score,
+            historical_skills_score=historical_skills_score,
+            education_score=education_score,
+            project_score=project_score,
             semantic_similarity=semantic_similarity,
             feedback_adjustment=feedback_delta,
             matched_skills=matched_skills,
@@ -459,20 +546,42 @@ Please evaluate the match and return the structured JSON assessment."""
         job_id: int,
         session: Session,
         ai_client: BaseAIClient,
-    ) -> Optional[Job]:
+        user_id: int | None = None,
+    ) -> Job | None:
         """Fetch Job and UserProfile, run multi-factor evaluation with feedback & vector RAG, and update Job record."""
-        job = session.get(Job, job_id)
+        job_stmt = select(Job).where(Job.id == job_id)
+        if user_id is not None:
+            job_stmt = job_stmt.where(Job.user_id == user_id)
+        job = session.exec(job_stmt).first()
         if not job:
             logger.warning("Job id=%d not found", job_id)
             return None
 
         # Fetch candidate profile
-        profile = session.exec(select(UserProfile)).first()
+        if user_id is not None:
+            from app.db.ownership import get_user_profile
+            profile = get_user_profile(session, user_id, decrypt=True)
+        else:
+            profile = session.exec(select(UserProfile)).first()
         cand_skills = extract_keywords_from_profile(profile)
         cand_titles = json.loads(profile.target_titles_json or "[]") if profile else []
         cand_locations = json.loads(profile.target_locations_json or "[]") if profile else []
         cand_work_pref = profile.work_preference if profile else "remote_first"
         cand_exp = profile.experience_years if profile else 0.0
+
+        scoring_weights = None
+        if user_id is not None:
+            from app.db.database import get_app_setting, get_user_setting
+            scoring_weights = {
+                "skills": float(get_user_setting(session, user_id, "weight_skills", get_app_setting("weight_skills", 70))),
+                "title": float(get_user_setting(session, user_id, "weight_title", get_app_setting("weight_title", 15))),
+                "location": float(get_user_setting(session, user_id, "weight_location", get_app_setting("weight_location", 10))),
+                "experience": float(get_user_setting(session, user_id, "weight_experience", get_app_setting("weight_experience", 5))),
+                "vector": float(get_user_setting(session, user_id, "weight_vector", get_app_setting("weight_vector", 20))),
+                "history_skills": float(get_user_setting(session, user_id, "weight_history_skills", get_app_setting("weight_history_skills", 10))),
+                "education": float(get_user_setting(session, user_id, "weight_education", get_app_setting("weight_education", 5))),
+                "projects": float(get_user_setting(session, user_id, "weight_projects", get_app_setting("weight_projects", 10))),
+            }
 
         if profile:
             parts = [f"Name: {profile.full_name}"]
@@ -492,6 +601,8 @@ Please evaluate the match and return the structured JSON assessment."""
                 parts.append(f"Experience History: {profile.experience_history_json}")
             if profile.education_json and profile.education_json != "[]":
                 parts.append(f"Education: {profile.education_json}")
+            if profile.projects_json and profile.projects_json != "[]":
+                parts.append(f"Projects: {profile.projects_json}")
             if profile.cv_raw_text:
                 parts.append(f"Resume Text:\n{profile.cv_raw_text[:3000]}")
             candidate_text = "\n".join(parts)
@@ -545,6 +656,7 @@ Please evaluate the match and return the structured JSON assessment."""
                 experience_years=cand_exp,
                 semantic_similarity=semantic_sim,
                 feedback_delta=feedback_delta,
+                scoring_weights=scoring_weights,
             )
 
         # Delete non-matching job from databank if fit score is 0 or 0 skills match
@@ -569,15 +681,20 @@ Please evaluate the match and return the structured JSON assessment."""
         return job
 
     @classmethod
-    def purge_non_matching_jobs(cls, session: Session) -> int:
+    def purge_non_matching_jobs(cls, session: Session, user_id: int | None = None) -> int:
         """Delete all jobs from database databank that do not match candidate profile skills or have fit_score=0."""
-        profile = session.exec(select(UserProfile)).first()
+        if user_id is not None:
+            from app.db.ownership import get_user_profile
+            profile = get_user_profile(session, user_id, decrypt=True)
+        else:
+            profile = session.exec(select(UserProfile)).first()
         cand_skills = extract_keywords_from_profile(profile)
 
         # 1. Purge jobs with fit_score == 0 or NOT_A_FIT status
         non_matching = session.exec(
             select(Job).where(
-                (Job.fit_score == 0) | (Job.status == "not a good fit")
+                ((Job.fit_score == 0) | (Job.status == "not a good fit")),
+                Job.user_id == user_id if user_id is not None else True,
             )
         ).all()
 
@@ -588,7 +705,10 @@ Please evaluate the match and return the structured JSON assessment."""
 
         # 2. If candidate has profile skills, purge any job with 0 matched skills
         if cand_skills:
-            all_jobs = session.exec(select(Job)).all()
+            all_jobs_stmt = select(Job)
+            if user_id is not None:
+                all_jobs_stmt = all_jobs_stmt.where(Job.user_id == user_id)
+            all_jobs = session.exec(all_jobs_stmt).all()
             for j in all_jobs:
                 if j.id in deleted_ids:
                     continue
@@ -607,25 +727,32 @@ Please evaluate the match and return the structured JSON assessment."""
     async def rescore_all_jobs(
         cls,
         session: Session,
-        ai_client: Optional[BaseAIClient] = None,
+        ai_client: BaseAIClient | None = None,
+        user_id: int | None = None,
     ) -> int:
         """Re-evaluate and rescore all jobs in the database using the updated scoring weights."""
         from app.ai.client import get_ai_client
-        jobs = session.exec(select(Job)).all()
-        client = ai_client or get_ai_client()
+        jobs_stmt = select(Job)
+        if user_id is not None:
+            jobs_stmt = jobs_stmt.where(Job.user_id == user_id)
+        jobs = session.exec(jobs_stmt).all()
+        client = ai_client or get_ai_client(session, user_id)
         rescored = 0
         for job in jobs:
             try:
+                if job.id is None:
+                    continue
                 res = await cls.evaluate_and_update_job(
                     job_id=job.id,
                     session=session,
                     ai_client=client,
+                    user_id=user_id,
                 )
                 if res is not None:
                     rescored += 1
             except Exception as err:
                 logger.warning("Failed rescoring job id=%d: %s", job.id, err)
 
-        cls.purge_non_matching_jobs(session)
+        cls.purge_non_matching_jobs(session, user_id=user_id)
         logger.info("Rescored %d jobs with updated parameter weights", rescored)
         return rescored

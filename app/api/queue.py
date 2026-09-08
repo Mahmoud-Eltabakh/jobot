@@ -1,14 +1,16 @@
 """REST API endpoints for monitoring and controlling the background task queue."""
 
 import logging
-from typing import Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select, desc
+from sqlmodel import Session, desc, select
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_session
-from app.db.models import ScrapeTask
-from app.queue.task_queue import TaskQueue
+from app.db.models import ScrapeTask, User
+from app.queue.task_queue import ALLOWED_TASK_TYPES, TaskQueue
 
 logger = logging.getLogger("jobot.api.queue")
 
@@ -24,11 +26,16 @@ class EnqueueTaskRequest(BaseModel):
 
 
 @router.get("/status", response_model=dict[str, Any])
-async def get_queue_status(session: Session = Depends(get_session)) -> dict[str, Any]:
+async def get_queue_status(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Fetch task queue counts and recent task logs."""
-    stats = TaskQueue.get_stats(session)
+    stats = TaskQueue.get_stats(session, current_user.id)
     recent_tasks = session.exec(
-        select(ScrapeTask).order_by(desc(ScrapeTask.created_at)).limit(10)
+        select(ScrapeTask)
+        .where(ScrapeTask.user_id == current_user.id)
+        .order_by(desc(ScrapeTask.created_at)).limit(10)
     ).all()
 
     return {
@@ -53,14 +60,24 @@ async def get_queue_status(session: Session = Depends(get_session)) -> dict[str,
 async def enqueue_task(
     payload: EnqueueTaskRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Enqueue a new task into the background queue."""
-    task = TaskQueue.enqueue(
-        session=session,
-        task_type=payload.task_type,
-        payload=payload.payload,
-        max_retries=payload.max_retries,
-    )
+    if payload.task_type not in ALLOWED_TASK_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid task_type '{payload.task_type}'. Allowed: {sorted(ALLOWED_TASK_TYPES)}",
+        )
+    try:
+        task = TaskQueue.enqueue(
+            session=session,
+            task_type=payload.task_type,
+            payload=payload.payload,
+            max_retries=payload.max_retries,
+            user_id=current_user.id,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
     return {
         "status": "ok",
         "task_id": task.id,
@@ -72,12 +89,14 @@ async def enqueue_task(
 @router.post("/run-discovery", response_model=dict[str, Any])
 async def trigger_full_discovery_task(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Enqueue a full discovery job that formulates queries and extracts opportunities in the background."""
     task = TaskQueue.enqueue(
         session=session,
         task_type="full_discovery",
         payload={"max_queries": 5},
+        user_id=current_user.id,
     )
     return {
         "status": "ok",
@@ -89,9 +108,10 @@ async def trigger_full_discovery_task(
 @router.post("/retry-failed", response_model=dict[str, Any])
 async def retry_failed_tasks(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Reset all failed tasks back to pending for worker retry."""
-    count = TaskQueue.retry_all_failed(session)
+    count = TaskQueue.retry_all_failed(session, current_user.id)
     return {
         "status": "ok",
         "message": f"Successfully reset {count} failed tasks to pending.",
@@ -102,6 +122,7 @@ async def retry_failed_tasks(
 @router.post("/pause-toggle", response_model=dict[str, Any])
 async def toggle_queue_pause(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Toggle background worker pause/resume state."""
     new_state = TaskQueue.toggle_pause(session)
@@ -116,9 +137,10 @@ async def toggle_queue_pause(
 async def retry_individual_task(
     task_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Reset an individual task to pending for worker retry."""
-    task = TaskQueue.retry_task(session, task_id)
+    task = TaskQueue.retry_task(session, task_id, current_user.id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {
@@ -132,9 +154,10 @@ async def retry_individual_task(
 async def delete_queue_task(
     task_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Delete an individual task from the queue."""
-    deleted = TaskQueue.delete_task(session, task_id)
+    deleted = TaskQueue.delete_task(session, task_id, current_user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
     return {
@@ -147,9 +170,10 @@ async def delete_queue_task(
 @router.post("/clear-completed", response_model=dict[str, Any])
 async def clear_completed_tasks(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Clear all completed tasks from the queue."""
-    count = TaskQueue.clear_completed(session)
+    count = TaskQueue.clear_completed(session, current_user.id)
     return {
         "status": "ok",
         "message": f"Cleared {count} completed tasks from queue.",
@@ -160,9 +184,10 @@ async def clear_completed_tasks(
 @router.post("/clear-all", response_model=dict[str, Any])
 async def clear_all_tasks(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Clear all non-running tasks from the queue."""
-    count = TaskQueue.clear_all(session, include_in_progress=False)
+    count = TaskQueue.clear_all(session, include_in_progress=False, user_id=current_user.id)
     return {
         "status": "ok",
         "message": f"Cleared {count} tasks from queue.",

@@ -7,6 +7,10 @@
 - **REQ-DB-02**: Vector storage via embedded ChromaDB for CV embeddings, job description embeddings, and feedback embeddings.
 - **REQ-DB-03**: Automatic database migration and initialization on startup with default settings seeding.
 
+### Code Quality
+- **REQ-QUAL-01**: New or substantially modified source modules should maintain approximately 20–30% meaningful comment coverage at module scope, counting useful docstrings and comments that explain intent, invariants, security assumptions, integration constraints, or non-obvious control flow.
+- **REQ-QUAL-02**: Comments must not restate obvious syntax, narrate simple assignments, duplicate identifiers, or create unrelated comment-only churn solely to satisfy the target.
+
 ### 2. Profile & CV Ingestion
 - **REQ-CV-01**: PDF and DOCX CV file upload with text extraction (`pypdf` / `pdfplumber`).
 - **REQ-CV-02**: LinkedIn profile export parser / structured manual profile entry.
@@ -89,3 +93,24 @@
 - **REQ-REMOTE-03**: Keep the host machine as the application brain: AI services, database, scrapers, and job queue continue to run locally while the device connects via the tunnel.
 - **REQ-REMOTE-04**: Document the setup flow clearly for macOS/Linux/Windows users, including key generation, tunnel creation, browser URL, and safe shutdown steps.
 - **REQ-REMOTE-05**: Add a lightweight security checklist covering SSH keys, restricted forwarding, local host binding, and no-open-port policy for mobile access.
+- **REQ-REMOTE-06**: Show persisted Tailscale hostname/IP, SSH user and port, Jobot forwarding port, and MagicDNS preferences in the Settings tab.
+- **REQ-REMOTE-07**: Detect and display local Tailscale connected, offline, or not-installed status without blocking the Settings view indefinitely.
+- **REQ-REMOTE-08**: Validate connection fields and keep privileged Tailscale and SSH command execution outside the web application.
+
+### 14. Experience, Education & Project Signal Scoring
+- **REQ-SIGNAL-01**: Expand the candidate model so previous skills, education, and project experience contribute to the fit score instead of only the most recent CV keyword list.
+- **REQ-SIGNAL-02**: Preserve structured experience history, education history, and project entries from both CV and LinkedIn ingestion, and merge them without overwriting existing validated data.
+- **REQ-SIGNAL-03**: Weight job fit using historical skills, education relevance, project outcomes, seniority trajectory, and experience quality as explicit scoring factors in the normalized profile model.
+- **REQ-SIGNAL-04**: Let the user review, edit, and re-sort all parsed experience, education, and project sections in the profile UI before triggering a rescoring pass.
+- **REQ-SIGNAL-05**: Make the signal weights configurable through the existing scoring calibration UI, with no hard-coded static values for the new profile-history factors.
+- **REQ-SIGNAL-06**: Keep the scoring pipeline transparent: users should be able to see which profile signals contributed most to a score and why a role was filtered or promoted.
+
+### 15. Account Login & Encrypted Per-User Data
+- **REQ-ACC-01**: Provide registration, login, logout, revocable sessions, and authenticated access to all personal application routes.
+- **REQ-ACC-02**: Hash passwords with a memory-hard salted algorithm and never persist plaintext credentials.
+- **REQ-ACC-03**: Scope jobs, profiles, notes, filters, search configurations, application materials, queue tasks, and user settings by authenticated `user_id`.
+- **REQ-ACC-04**: Encrypt sensitive profile fields and provider credentials at rest with authenticated, user-scoped encryption.
+- **REQ-ACC-05**: Support key IDs, previous-key configuration, rotation, and safe migration of legacy single-user records.
+- **REQ-ACC-06**: Route installations with no account to registration and unauthenticated returning users to login.
+- **REQ-ACC-07**: Never render stored API keys or LinkedIn session cookies back into HTML forms.
+- **REQ-ACC-08**: Keep scoring calibration and remote-access preferences isolated per account.

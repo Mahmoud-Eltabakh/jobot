@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from app.ai.blacklist_suggester import BlacklistSuggester
 from app.db.database import engine, init_db
-from app.db.models import FeedbackNote, FilterRule, Job, JobStatus
+from app.db.models import FeedbackNote, Job, JobStatus
 from app.scrapers.query_optimizer import SearchQueryOptimizer
 
 

@@ -3,7 +3,8 @@
 import abc
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
+
 import httpx
 import ollama
 import openai
@@ -22,7 +23,7 @@ class BaseAIClient(abc.ABC):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         json_mode: bool = True,
     ) -> str:
         """Generate text / JSON response from LLM."""
@@ -61,7 +62,7 @@ class OllamaAIClient(BaseAIClient):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         json_mode: bool = True,
     ) -> str:
         """Generate response from local Ollama LLM."""
@@ -147,7 +148,7 @@ class OllamaAIClient(BaseAIClient):
                 "healthy": False,
                 "base_url": self.base_url,
                 "error": str(err),
-                "message": f"Cannot reach {self.base_url}: {str(err)}.{hint}",
+                "message": f"Cannot reach {self.base_url}: {err!s}.{hint}",
             }
 
 
@@ -173,7 +174,7 @@ class OpenAICompatibleClient(BaseAIClient):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         json_mode: bool = True,
     ) -> str:
         """Generate response from OpenAI-compatible provider."""
@@ -235,14 +236,14 @@ class OpenAICompatibleClient(BaseAIClient):
                 "healthy": False,
                 "base_url": self.base_url,
                 "error": str(err),
-                "message": f"Cloud AI connection error: {str(err)}",
+                "message": f"Cloud AI connection error: {err!s}",
             }
 
 
 class MockAIClient(BaseAIClient):
     """In-memory mock AI client for unit tests and offline development."""
 
-    def __init__(self, default_response: Optional[str] = None) -> None:
+    def __init__(self, default_response: str | None = None) -> None:
         self.default_response = default_response or json.dumps({
             "fit_score": 85,
             "fit_summary": "Strong match with candidate background in Python and FastAPI.",
@@ -255,7 +256,7 @@ class MockAIClient(BaseAIClient):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         json_mode: bool = True,
     ) -> str:
         return self.default_response
@@ -275,22 +276,28 @@ class MockAIClient(BaseAIClient):
         }
 
 
-def get_ai_client(session: Optional[Session] = None) -> BaseAIClient:
-    """Resolve and return active AI client from database settings or environment."""
+def get_ai_client(session: Session | None = None, user_id: int | None = None) -> BaseAIClient:
+    """Resolve an AI client, preferring encrypted account-owned configuration."""
     settings = get_settings()
 
-    provider = get_app_setting("ai_provider", default=settings.ai_provider)
+    def configured(key: str, default: Any) -> Any:
+        if session is not None and user_id is not None:
+            from app.db.database import get_user_setting
+            return get_user_setting(session, user_id, key, get_app_setting(key, default))
+        return get_app_setting(key, default)
+
+    provider = configured("ai_provider", settings.ai_provider)
 
     if provider == "ollama":
-        base_url = get_app_setting("ollama_base_url", default=settings.ollama_base_url)
-        model = get_app_setting("ollama_model", default=settings.ollama_model)
-        embed_model = get_app_setting("ollama_embed_model", default=settings.ollama_embed_model)
+        base_url = configured("ollama_base_url", settings.ollama_base_url)
+        model = configured("ollama_model", settings.ollama_model)
+        embed_model = configured("ollama_embed_model", settings.ollama_embed_model)
         return OllamaAIClient(base_url=base_url, model=model, embed_model=embed_model)
 
     elif provider in ("openai", "custom"):
-        api_key = get_app_setting("openai_api_key", default=settings.openai_api_key or "")
-        base_url = get_app_setting("openai_base_url", default=settings.openai_base_url)
-        model = get_app_setting("openai_model", default=settings.openai_model)
+        api_key = configured("openai_api_key", settings.openai_api_key or "")
+        base_url = configured("openai_base_url", settings.openai_base_url)
+        model = configured("openai_model", settings.openai_model)
         return OpenAICompatibleClient(api_key=api_key, base_url=base_url, model=model)
 
     return OllamaAIClient()

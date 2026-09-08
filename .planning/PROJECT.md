@@ -22,10 +22,11 @@ Continuously discover high-relevance job opportunities across multiple platforms
 - [x] **Configurable Search & AI Settings**: Custom search titles, target locations, salary ranges, blacklist keywords, parameter scoring weights calibration sliders, and UI-based AI provider selection. (Phase 4 & Phase 12)
 - [x] **Containerization & Orchestration**: Production `Dockerfile`, `docker-compose.yml` with Host Ollama GPU/NPU support, and Kubernetes manifests (`k8s/`). (Phase 6)
 - [x] **Automation Scripts**: Cross-platform automation scripts (`manage.ps1` and `manage.sh`) for building images, running containers, model preloading, and Kubernetes deployments. (Phase 6)
+- [x] **Account Login & Per-User Encrypted Data**: Secure registration/login, revocable sessions, account-scoped data and settings, and user-bound authenticated encryption for sensitive local data. (Milestone 5)
 
-### Validated
+### Active
 
-- [x] **Secure Phone Access via SSH Tunnel**: Jobot can be used from a phone or secondary device through a secure SSH tunnel while keeping the main machine as the application brain and avoiding public port exposure. The design is documented in the user guide and milestone planning. (Milestone 3)
+- [ ] Define the next milestone after authenticated multi-user hardening.
 
 ### Out of Scope
 
@@ -50,6 +51,7 @@ Continuously discover high-relevance job opportunities across multiple platforms
 - **Tech Stack**: Pure Python backend and web UI (FastAPI + Jinja2 + HTMX + Tailwind CSS) + SQLite / ChromaDB.
 - **AI Backend**: Pluggable provider interface supporting Local Ollama (`ollama-python`) and OpenAI-compatible client (`openai` / `httpx`) with runtime settings persisted in SQLite and fully editable in the UI.
 - **Scraping Engine**: Python (`python-jobspy` + `playwright-python` for StepStone and authenticated LinkedIn profile ingestion).
+- **Comment Coverage**: New and substantially modified source modules target approximately 20–30% meaningful comment coverage, including useful docstrings and explanations of non-obvious behavior. Trivial narration and unrelated comment-only churn are prohibited.
 
 ## Key Decisions
 
@@ -72,6 +74,10 @@ Continuously discover high-relevance job opportunities across multiple platforms
 | Normalized Skill-Based Scoring & Calibration Sliders | Normalizes sub-factor scores to 0-100% with instant disqualification for 0 skill match, plus fine-tuning UI sliders in Settings | ✓ Validated (Phase 12) |
 | Open-Source Community Best Practices | Added MIT License, Code of Conduct, Security Policy, Issue Templates, and PR checklist | ✓ Validated (Phase 12) |
 | Secure SSH Tunnel Access for Mobile Devices | Lets the app stay on the main workstation while a phone connects through a secure SSH tunnel, avoiding public exposure and preserving the private local AI stack | Validated (Milestone 3) |
+| Tailscale SSH Settings Without Privileged Web Controls | Displays status and validated connection preferences while leaving network administration in the host operating system | ✓ Validated (Phase 13) |
+| Experience, Education & Project Signal Scoring | Uses a candidate's historical skills, educational background, and project work as explicit ranking signals so the fit score reflects the true professional profile | ✓ Validated (Milestone 4) |
+| Meaningful Comment Coverage | Targets 20–30% explanatory comments and docstrings in changed modules while rejecting syntax narration and mechanical padding | Active project convention |
+| User-Scoped Authenticated Encryption | Binds encrypted profile and provider secrets to the owning account, supports key IDs and rotation, and prevents stored secrets from being reflected into HTML | ✓ Validated (Phase 15) |
 
 
 ## Evolution
@@ -92,4 +98,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-08 after completing Milestone 2 (Queue Engine, Real-Data Enforcement, Parameter Calibration, and Open Source Suite)*
+*Last updated: 2026-09-08 after adding Tailscale SSH Settings and beginning Milestone 5 account and encrypted-data hardening.*

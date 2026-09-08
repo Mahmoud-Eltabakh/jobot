@@ -5,7 +5,7 @@
 See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 
 **Core value:** Continuously discover high-relevance job opportunities across multiple platforms and rank them accurately against a candidate's CV using local Ollama AI and adaptive Vector RAG learning, managed through a clean and responsive web dashboard.
-**Current focus:** All phases in Milestone 1 and Milestone 2 are 100% Complete. Project is ready and maintained for open-source community adoption.
+**Current focus:** Milestone 5 is complete. Jobot now provides authenticated, encrypted, per-user operation across the dashboard, APIs, queue, profile, scoring, and settings layers.
 
 ## Phase Status
 
@@ -26,7 +26,13 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 - [x] **Phase 12: Strict Real-Data Enforcement, Scoring Calibration & Actionable Error UI** — Complete (3 plans: 12-01, 12-02, 12-03)
 
 ### Milestone 3: Secure Remote Access & Phone SSH Tunnel (Complete)
-- [x] **Phase 13: Secure Phone Access Through an SSH Tunnel** — Complete (3 plans: 13-01, 13-02, 13-03)
+- [x] **Phase 13: Secure Phone Access Through an SSH Tunnel** — Complete (4 plans: 13-01, 13-02, 13-03, 13-04)
+
+### Milestone 4: Experience, Education & Project Signal Scoring (Complete)
+- [x] **Phase 14: Experience, Education & Project Signal Scoring** — Complete (3 plans: 14-01, 14-02, 14-03)
+
+### Milestone 5: Account Login & Per-User Encrypted Data (Complete)
+- [x] **Phase 15: Secure User Accounts and Encrypted Personal Data** — Complete (3 plans: 15-01, 15-02, 15-03)
 
 ## Progress Log
 
@@ -44,3 +50,7 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 - **2026-09-08**: Executed Phase 11: Integrated Tom Quirk's `linkedin-api` (Voyager REST API) and Joeyism's `linkedin_scraper` Playwright engine with `li_at` cookie injection for rich candidate profile sync.
 - **2026-09-08**: Executed Phase 12: Enforced zero synthetic mock fallbacks, implemented normalized profile-skill-based fit scoring with 0% disqualification for 0 skill match, added UI sliders for parameter scoring weight calibration, auto-purging of non-matching jobs, joined CV + LinkedIn profile merging, and complete open-source documentation suite (MIT License, Code of Conduct, Security Policy, PR/Issue templates). All 85 unit tests passing.
 - **2026-09-08**: Executed Phase 13: Documented the secure phone-access architecture through an SSH tunnel, added the cross-platform mobile access flow, and finalized the host-only security checklist and validation steps. The design keeps Jobot, Ollama, SQLite, and the scraping stack on the main machine while treating the phone as a secure client endpoint.
+- **2026-09-08**: Completed Phase 13 follow-up 13-04: Added a Tailscale SSH Settings panel with persisted connection preferences, bounded runtime status detection, validated command inputs, and no privileged web controls.
+- **2026-09-08**: Began Phase 15 implementation for account login, revocable sessions, user ownership fields, and encrypted-data primitives; full route-level isolation and sensitive-field integration remain active work.
+- **2026-09-08**: Established a repository-wide code-quality convention targeting approximately 20–30% meaningful comments and docstrings in new or substantially modified modules, without mechanical narration or unrelated comment-only churn.
+- **2026-09-08**: Completed Phase 15: Added first-run registration, login/logout, revocable sessions, user-scoped records and settings, encrypted sensitive profile/provider data, legacy ownership migration, secret non-reflection, and authenticated regression coverage. Full suite: 99 passed.

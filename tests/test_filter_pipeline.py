@@ -6,7 +6,7 @@ from sqlmodel import Session
 from app.db.database import engine, init_db
 from app.db.models import FilterRule, Job, JobStatus
 from app.scrapers.base import ScrapedJob
-from app.scrapers.filter_pipeline import FilterResult, JobFilterPipeline
+from app.scrapers.filter_pipeline import JobFilterPipeline
 
 
 @pytest.fixture(autouse=True)

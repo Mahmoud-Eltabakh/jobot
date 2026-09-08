@@ -47,6 +47,8 @@
 - **🧹 Zero-Noise Auto-Purging**: Automatically purges non-matching jobs (0% skill overlap or blacklisted rules) from your database to keep your pipeline 100% relevant.
 - **📝 1-Click AI Cover Letter & Resume Tailoring**: Generates custom cover letters in 4 distinct professional tones (Professional, Direct, Enthusiastic, Conversational) and ATS-optimized accomplishment bullet points.
 - **📋 Pure-Python Web Interface**: Dark-mode dashboard featuring an 8-stage Kanban board (`Seen`, `Applied`, `1st Interview`, `Not a Fit`, etc.), Data Table, Profile Editor, and real-time **AI Queue Control Center**.
+- **Private Tailscale SSH Access**: The Settings tab shows local Tailscale status and stores validated SSH forwarding preferences without allowing the web process to run privileged networking commands.
+- **Encrypted Multi-User Accounts**: First-run registration, revocable sessions, account-scoped jobs/settings/queue data, and user-bound encryption for CV, LinkedIn, and provider credentials.
 
 ---
 
@@ -65,6 +67,8 @@ Connects Jobot directly to your host machine's Ollama installation for native GP
 ./scripts/manage.sh docker-up-host-ollama
 ```
 Open **[http://localhost:8000](http://localhost:8000)** in your browser.
+
+On a new installation, Jobot opens the registration screen. After the first account exists, unauthenticated browsers are directed to login. Each account receives an isolated dashboard, profile, queue, scoring configuration, and remote-access profile.
 
 ---
 
@@ -142,6 +146,12 @@ Then open the UI in the browser on the phone using the host's reachable endpoint
 - Use a private trusted network where possible
 - Stop the tunnel when you are done and verify the app is still local-only
 
+#### Tailscale SSH settings
+
+Open **Settings → Tailscale SSH Remote Access** to configure the Tailscale hostname or IP, SSH user and port, Jobot forwarding port, and MagicDNS preference. The panel checks the local `tailscale` client with a bounded status request and shows **Connected**, **Offline**, or **Not installed**.
+
+When a hostname and SSH user are saved, the panel displays the corresponding forwarding command. Run that command in an SSH-capable client on the remote device. Jobot does not execute `tailscale up`, `tailscale down`, or SSH commands from the browser.
+
 ---
 
 ## 🖼️ Dashboard & Interface Tour
@@ -152,7 +162,7 @@ Then open the UI in the browser on the phone using the host's reachable endpoint
 | **Data Table** | Sortable tabular view displaying job postings, match percentages, compensation, locations, and source platforms. |
 | **AI Queue** | Real-time control center to monitor background task execution (`scrape_query`, `evaluate_job`, `full_discovery`), pause/resume worker, retry failed jobs, or clear queue. |
 | **Profile & CV** | Upload PDF/DOCX resumes, manage core skills matrix, generate professional AI bios, and sync LinkedIn profiles using `li_at` session cookie. |
-| **Settings** | Configure Ollama / OpenAI models, adjust fine-tuning parameter scoring weights, and manage blacklist rules. |
+| **Settings** | Configure Ollama / OpenAI models, scoring weights, blacklist rules, and validated Tailscale SSH connection preferences. |
 
 ---
 
@@ -162,9 +172,14 @@ Then open the UI in the browser on the phone using the host's reachable endpoint
 |---|---|---|
 | `APP_NAME` | `Jobot` | Application branding title |
 | `ENV` | `development` | Runtime environment (`development` / `production`) |
-| `DEBUG` | `true` | FastAPI debug mode |
+| `DEBUG` | `false` | FastAPI debug mode (Set to true in dev) |
 | `HOST` | `127.0.0.1` | Web server bind address |
 | `PORT` | `8000` | Web server listening port |
+| `SECRET_KEY` | `""` | Reserved application secret supplied by the deployment environment |
+| `ENCRYPTION_KEY` | `""` | Master encryption key; required when `ENV=production` |
+| `ENCRYPTION_KEY_ID` | `local` | Active key identifier stored with new ciphertext |
+| `ENCRYPTION_KEY_FILE` | `data/.jobot-encryption-key` | Owner-restricted development key file when no environment key is supplied |
+| `PREVIOUS_ENCRYPTION_KEYS` | `""` | Comma-separated `key-id:key` values retained during rotation |
 | `DATABASE_URL` | `sqlite:///data/jobot.db` | SQLite database connection string |
 | `CHROMA_DIR` | `data/chroma` | Persistent ChromaDB vector store directory |
 | `AI_PROVIDER` | `ollama` | Active AI provider (`ollama`, `openai`, `custom`) |
@@ -174,6 +189,12 @@ Then open the UI in the browser on the phone using the host's reachable endpoint
 | `OPENAI_API_KEY` | `""` | Optional Cloud AI API Key |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional Cloud AI base URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Optional Cloud AI LLM model |
+| `TAILSCALE_ENABLED` | `false` | Enable the saved Tailscale remote-access profile |
+| `TAILSCALE_HOSTNAME` | `""` | MagicDNS hostname or Tailscale IP for the Jobot host |
+| `TAILSCALE_SSH_USER` | `""` | Operating-system user accepted by Tailscale SSH |
+| `TAILSCALE_SSH_PORT` | `22` | SSH port used by the forwarding command |
+| `TAILSCALE_APP_PORT` | `8000` | Local Jobot port forwarded to the remote device |
+| `TAILSCALE_MAGIC_DNS` | `true` | Prefer Tailscale MagicDNS hostnames |
 
 ---
 
@@ -215,8 +236,13 @@ Contributions are warmly welcomed! Jobot is a community-driven open-source proje
 
 Jobot is built privacy-first:
 - When configured with local Ollama, **100% of your data stays on your machine**.
-- Resumes, candidate profiles, and job descriptions are never sent to external telemetry or third parties.
-- For security disclosure procedures, see our [Security Policy](SECURITY.md).
+- **Cloud AI Note:** If you configure an external cloud provider (e.g. OpenAI), your CV text, LinkedIn profile, and active job searches will be transmitted to that third party for evaluation.
+- Resumes, candidate profiles, and job descriptions are never sent to external telemetry.
+- Passwords are salted and hashed with scrypt; plaintext passwords are never persisted.
+- Sensitive profile fields and provider credentials use authenticated encryption bound to the owning account. (Windows users should export `ENCRYPTION_KEY` in their `.env`).
+- Stored API keys and LinkedIn cookies are never rendered back into browser forms or API responses.
+- Application logic utilizes strict input validation and XML bounding to defend against LLM prompt injection from malicious job listings.
+- For security disclosure procedures and the complete threat model, see our [Security Policy](SECURITY.md).
 
 ---
 

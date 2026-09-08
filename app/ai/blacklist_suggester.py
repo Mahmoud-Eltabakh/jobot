@@ -3,7 +3,7 @@
 import collections
 import logging
 import re
-from typing import Any, Optional
+
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -35,7 +35,7 @@ class BlacklistSuggester:
     async def analyze_rejections_and_suggest_rules(
         cls,
         session: Session,
-        ai_client: Optional[BaseAIClient] = None,
+        ai_client: BaseAIClient | None = None,
         min_occurrences: int = 2,
     ) -> list[SuggestedRule]:
         """Analyze negative notes and rejected jobs to propose new blacklist FilterRules."""

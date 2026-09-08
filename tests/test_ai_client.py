@@ -1,8 +1,8 @@
 """Tests for pluggable AI Client interface and provider implementations."""
 
 import pytest
+
 from app.ai.client import (
-    BaseAIClient,
     MockAIClient,
     OllamaAIClient,
     OpenAICompatibleClient,

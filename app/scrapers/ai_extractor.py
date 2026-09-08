@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from typing import Any, Optional
+
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
@@ -40,13 +40,13 @@ class AIExtractedJobListing(BaseModel):
     company: str = Field(default="")
     location: str = Field(default="")
     is_remote: bool = Field(default=False)
-    salary_min: Optional[float] = None
-    salary_max: Optional[float] = None
-    salary_currency: Optional[str] = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
     description: str = Field(default="")
     required_skills: list[str] = Field(default_factory=list)
-    visa_sponsorship: Optional[str] = None
-    language_requirement: Optional[str] = None
+    visa_sponsorship: str | None = None
+    language_requirement: str | None = None
     is_legitimate_job: bool = Field(default=True)
 
 
@@ -74,8 +74,8 @@ class AIScraperExtractor:
         html_or_text: str,
         source_url: str = "",
         source: str = "web",
-        ai_client: Optional[BaseAIClient] = None,
-    ) -> Optional[ScrapedJob]:
+        ai_client: BaseAIClient | None = None,
+    ) -> ScrapedJob | None:
         """Parse raw HTML/DOM into a normalized ScrapedJob using AI."""
         cleaned_text = cls.clean_html_to_markdown_text(html_or_text)
         if not cleaned_text:
@@ -92,12 +92,9 @@ class AIScraperExtractor:
             )
 
             clean_json = response.strip()
-            if clean_json.startswith("```json"):
-                clean_json = clean_json[7:]
-            if clean_json.startswith("```"):
-                clean_json = clean_json[3:]
-            if clean_json.endswith("```"):
-                clean_json = clean_json[:-3]
+            clean_json = clean_json.removeprefix("```json")
+            clean_json = clean_json.removeprefix("```")
+            clean_json = clean_json.removesuffix("```")
             clean_json = clean_json.strip()
 
             data = json.loads(clean_json)
@@ -130,7 +127,7 @@ class AIScraperExtractor:
         text: str,
         source_url: str,
         source: str,
-        default_title: Optional[str] = None,
+        default_title: str | None = None,
     ) -> ScrapedJob:
         """Heuristic regex-based fallback extractor for offline or non-AI modes."""
         lines = [l.strip() for l in text.split("\n") if l.strip()]

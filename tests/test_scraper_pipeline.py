@@ -1,12 +1,12 @@
 """Tests for scraper data contracts, deduplication hashing, and database persistence."""
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.db.database import engine, init_db
-from app.db.models import Job, JobStatus
+from app.db.models import JobStatus
 from app.scrapers.base import ScrapedJob
-from app.scrapers.dedup import compute_dedup_hash, normalize_string, save_scraped_jobs
+from app.scrapers.dedup import compute_dedup_hash, save_scraped_jobs
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +76,7 @@ def test_save_scraped_jobs_deduplication() -> None:
         inserted, skipped = save_scraped_jobs(jobs, session)
         assert len(inserted) == 2
         assert skipped == 1
-        assert inserted[0].status == JobStatus.SEEN.value
+        assert inserted[0].status == JobStatus.NEW.value
 
         # Re-running the same batch should insert 0 and skip all 3
         inserted_second_run, skipped_second_run = save_scraped_jobs(jobs, session)

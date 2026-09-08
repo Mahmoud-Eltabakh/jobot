@@ -1,6 +1,7 @@
 """Unit and integration tests for AI-Assisted Web Scraping & Query Strategy."""
 
 import json
+
 import pytest
 from sqlmodel import Session
 

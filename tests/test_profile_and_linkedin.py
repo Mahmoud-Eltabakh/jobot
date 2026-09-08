@@ -1,9 +1,10 @@
 """Unit and integration tests for Profile Management, LinkedIn Analysis, and Skill-Driven Scraping."""
 
 import json
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.ai.client import MockAIClient
 from app.ai.embeddings import ProfileEmbedder
@@ -12,7 +13,6 @@ from app.ai.profile_extractor import ExtractedProfile
 from app.db.database import engine, init_db
 from app.db.models import UserProfile
 from app.db.vector import get_vector_store
-from app.main import app
 from app.scrapers.scheduler import ScraperPipeline
 
 
@@ -21,38 +21,35 @@ def setup_db() -> None:
     init_db()
 
 
-def test_profile_model_and_api():
+def test_profile_model_and_api(authenticated_client: TestClient):
     """Test retrieving and updating candidate profile via REST API."""
-    with TestClient(app) as client:
-        # 1. Update Profile via API
-        payload = {
-            "full_name": "Jane Doe",
-            "headline": "Lead Python Engineer & AI Architect",
-            "bio": "Experienced architect specializing in FastAPI and ChromaDB vector search.",
-            "experience_years": 6.5,
-            "target_titles": ["Lead Python Developer", "AI Backend Architect"],
-            "target_locations": ["Remote", "Munich", "Berlin"],
-            "target_salary_min": 95000,
-            "work_preference": "remote_only",
-            "skills": ["Python", "FastAPI", "Docker", "ChromaDB", "Kubernetes", "PostgreSQL"],
-            "active_search_skills": ["Python", "FastAPI", "ChromaDB"],
-            "linkedin_url": "https://www.linkedin.com/in/janedoe",
-        }
+    payload = {
+    "full_name": "Jane Doe",
+    "headline": "Lead Python Engineer & AI Architect",
+    "bio": "Experienced architect specializing in FastAPI and ChromaDB vector search.",
+    "experience_years": 6.5,
+    "target_titles": ["Lead Python Developer", "AI Backend Architect"],
+    "target_locations": ["Remote", "Munich", "Berlin"],
+    "target_salary_min": 95000,
+    "work_preference": "remote_only",
+    "skills": ["Python", "FastAPI", "Docker", "ChromaDB", "Kubernetes", "PostgreSQL"],
+    "active_search_skills": ["Python", "FastAPI", "ChromaDB"],
+    "linkedin_url": "https://www.linkedin.com/in/janedoe",
+    }
 
-        resp = client.post("/api/profile/update", json=payload)
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+    resp = authenticated_client.post("/api/profile/update", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
 
-        # 2. Get Profile via API
-        get_resp = client.get("/api/profile")
-        assert get_resp.status_code == 200
-        data = get_resp.json()["profile"]
-        assert data["full_name"] == "Jane Doe"
-        assert data["headline"] == "Lead Python Engineer & AI Architect"
-        assert data["experience_years"] == 6.5
-        assert "FastAPI" in data["skills"]
-        assert data["active_search_skills"] == ["Python", "FastAPI", "ChromaDB"]
-        assert data["work_preference"] == "remote_only"
+    get_resp = authenticated_client.get("/api/profile")
+    assert get_resp.status_code == 200
+    data = get_resp.json()["profile"]
+    assert data["full_name"] == "Jane Doe"
+    assert data["headline"] == "Lead Python Engineer & AI Architect"
+    assert data["experience_years"] == 6.5
+    assert "FastAPI" in data["skills"]
+    assert data["active_search_skills"] == ["Python", "FastAPI", "ChromaDB"]
+    assert data["work_preference"] == "remote_only"
 
 
 @pytest.mark.asyncio
@@ -152,91 +149,83 @@ def test_skill_driven_scraper_query_builder():
         assert all(q[2] == "Germany" for q in queries)
 
 
-def test_web_profile_view_and_form_update():
+def test_web_profile_view_and_form_update(authenticated_client: TestClient):
     """Test rendering the Profile tab and updating via HTML form."""
-    with TestClient(app) as client:
-        # 1. GET Profile View HTML
-        resp = client.get("/web/views/profile")
-        assert resp.status_code == 200
-        assert "Candidate Profile" in resp.text or "General Information" in resp.text
-        assert "LinkedIn Profile Ingestion" in resp.text
+    # Verify the form reads and writes the registered account's profile.
+    resp = authenticated_client.get("/web/views/profile")
+    assert resp.status_code == 200
+    assert "Candidate Profile" in resp.text or "General Information" in resp.text
+    assert "LinkedIn Profile Ingestion" in resp.text
 
-        # 2. POST Profile Update Form
-        form_data = {
-            "full_name": "Alice Wonderland",
-            "headline": "Senior Cloud Engineer",
-            "bio": "Building scalable cloud infrastructure.",
-            "experience_years": "5.0",
-            "target_titles": "Cloud Engineer, Platform Engineer",
-            "target_locations": "Remote, Germany",
-            "target_salary_min": "80000",
-            "work_preference": "remote_first",
-            "skills": "Python, AWS, Terraform, Docker",
-            "active_skills": ["Python", "AWS"],
-        }
+    form_data = {
+        "full_name": "Alice Wonderland",
+        "headline": "Senior Cloud Engineer",
+        "bio": "Building scalable cloud infrastructure.",
+        "experience_years": "5.0",
+        "target_titles": "Cloud Engineer, Platform Engineer",
+        "target_locations": "Remote, Germany",
+        "target_salary_min": "80000",
+        "work_preference": "remote_first",
+        "skills": "Python, AWS, Terraform, Docker",
+        "active_skills": ["Python", "AWS"],
+    }
 
-        post_resp = client.post("/web/profile/update", data=form_data)
-        assert post_resp.status_code == 200
-        assert "Alice Wonderland" in post_resp.text
-        assert "Senior Cloud Engineer" in post_resp.text
+    post_resp = authenticated_client.post("/web/profile/update", data=form_data)
+    assert post_resp.status_code == 200
+    assert "Alice Wonderland" in post_resp.text
+    assert "Senior Cloud Engineer" in post_resp.text
 
 
-def test_web_profile_update_cv_data_and_rescore():
+def test_web_profile_update_cv_data_and_rescore(authenticated_client: TestClient):
     """Test editing extracted CV data/history and calling rescore & filter."""
-    with TestClient(app) as client:
-        form_data = {
-            "full_name": "Charlie Programmer",
-            "headline": "Fullstack Developer",
-            "bio": "Experienced developer.",
-            "experience_years": "4.0",
-            "target_titles": "Fullstack Engineer",
-            "target_locations": "Remote",
-            "target_salary_min": "70000",
-            "work_preference": "remote_first",
-            "skills": "Python, TypeScript, React",
-            "active_skills": ["Python", "React"],
-            "experience_history_text": '[{"title": "Lead Dev", "company": "Acme", "duration": "2020-2024", "description": "Built web apps"}]',
-            "education_text": '[{"school": "MIT", "degree": "B.Sc.", "field_of_study": "CS"}]',
-            "cv_raw_text": "Charlie Programmer - Experienced Fullstack Developer with Python and React skills.",
-        }
+    form_data = {
+        "full_name": "Charlie Programmer",
+        "headline": "Fullstack Developer",
+        "bio": "Experienced developer.",
+        "experience_years": "4.0",
+        "target_titles": "Fullstack Engineer",
+        "target_locations": "Remote",
+        "target_salary_min": "70000",
+        "work_preference": "remote_first",
+        "skills": "Python, TypeScript, React",
+        "active_skills": ["Python", "React"],
+        "experience_history_text": '[{"title": "Lead Dev", "company": "Acme", "duration": "2020-2024", "description": "Built web apps"}]',
+        "education_text": '[{"school": "MIT", "degree": "B.Sc.", "field_of_study": "CS"}]',
+        "cv_raw_text": "Charlie Programmer - Experienced Fullstack Developer with Python and React skills.",
+    }
 
-        post_resp = client.post("/web/profile/update", data=form_data)
-        assert post_resp.status_code == 200
-        assert "Charlie Programmer" in post_resp.text
-        assert "Parsed Resume / CV Data & Career History" in post_resp.text
+    post_resp = authenticated_client.post("/web/profile/update", data=form_data)
+    assert post_resp.status_code == 200
+    assert "Charlie Programmer" in post_resp.text
+    assert "Parsed Resume / CV Data & Career History" in post_resp.text
 
-        # Test Rescore & Filter button route
-        rescore_resp = client.post("/web/profile/rescore-filter")
-        assert rescore_resp.status_code == 200
-        assert "Rescored and Filtered" in rescore_resp.text
+    rescore_resp = authenticated_client.post("/web/profile/rescore-filter")
+    assert rescore_resp.status_code == 200
+    assert "Rescored and Filtered" in rescore_resp.text
 
 
-def test_scrape_modal_and_run_routes():
+def test_scrape_modal_and_run_routes(authenticated_client: TestClient):
     """Test GET /web/components/scrape-modal and POST /web/scrape/run popup endpoints."""
-    with TestClient(app) as client:
-        # GET modal
-        resp_modal = client.get("/web/components/scrape-modal")
-        assert resp_modal.status_code == 200
-        assert "Start Job Scraping Discovery" in resp_modal.text
-        assert "Start Fresh" in resp_modal.text
-        assert "Search More Jobs" in resp_modal.text
+    resp_modal = authenticated_client.get("/web/components/scrape-modal")
+    assert resp_modal.status_code == 200
+    assert "Start Job Scraping Discovery" in resp_modal.text
+    assert "Start Fresh" in resp_modal.text
+    assert "Search More Jobs" in resp_modal.text
 
-        # POST run fresh mode
-        resp_fresh = client.post("/web/scrape/run?mode=fresh")
-        assert resp_fresh.status_code == 200
-        assert "Fresh discovery queued" in resp_fresh.text
+    resp_fresh = authenticated_client.post("/web/scrape/run?mode=fresh")
+    assert resp_fresh.status_code == 200
+    assert "Fresh discovery queued" in resp_fresh.text
 
-        # POST run incremental mode
-        resp_inc = client.post("/web/scrape/run?mode=incremental")
-        assert resp_inc.status_code == 200
-        assert "Incremental search discovery queued" in resp_inc.text
+    resp_inc = authenticated_client.post("/web/scrape/run?mode=incremental")
+    assert resp_inc.status_code == 200
+    assert "Incremental search discovery queued" in resp_inc.text
 
 
 @pytest.mark.asyncio
 async def test_ai_bio_generation_function():
     """Verify generate_candidate_bio creates an executive summary using AI/fallback."""
-    from app.ai.profile_extractor import generate_candidate_bio
     from app.ai.client import MockAIClient
+    from app.ai.profile_extractor import generate_candidate_bio
 
     mock_client = MockAIClient(default_response="Accomplished Senior Cloud Engineer with 5+ years of experience in AWS and Terraform.")
     
@@ -255,10 +244,9 @@ async def test_ai_bio_generation_function():
     assert len(bio) > 20
 
 
-def test_web_profile_generate_bio_route():
+def test_web_profile_generate_bio_route(authenticated_client: TestClient):
     """Test POST /web/profile/generate-bio route returns updated textarea HTMX partial."""
-    with TestClient(app) as client:
-        resp = client.post(
+    resp = authenticated_client.post(
             "/web/profile/generate-bio",
             data={
                 "full_name": "Bob Builder",
@@ -268,11 +256,11 @@ def test_web_profile_generate_bio_route():
                 "skills": "Kubernetes, Docker, Ansible",
                 "work_preference": "remote_first",
             },
-        )
-        assert resp.status_code == 200
-        assert "bio-textarea-container" in resp.text
-        assert "Generate Bio with AI" in resp.text
-        assert "Executive summary generated automatically with AI" in resp.text
+    )
+    assert resp.status_code == 200
+    assert "bio-textarea-container" in resp.text
+    assert "Generate Bio with AI" in resp.text
+    assert "Executive summary generated automatically with AI" in resp.text
 
 
 def test_linkedin_api_public_id_extraction():

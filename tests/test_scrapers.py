@@ -1,6 +1,7 @@
 """Tests for JobSpy scraper integration and DataFrame mapping."""
 
 from unittest.mock import patch
+
 import pandas as pd
 import pytest
 

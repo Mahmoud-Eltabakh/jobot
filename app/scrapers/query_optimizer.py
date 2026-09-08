@@ -3,10 +3,10 @@
 import collections
 import logging
 import re
-from typing import Optional
+
 from sqlmodel import Session, select
 
-from app.db.models import Job, JobStatus, SearchConfig
+from app.db.models import Job, JobStatus
 
 logger = logging.getLogger("jobot.scrapers.query_optimizer")
 

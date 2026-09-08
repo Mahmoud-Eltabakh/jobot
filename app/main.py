@@ -1,8 +1,9 @@
 """Main FastAPI application entry point for Jobot."""
 
-from contextlib import asynccontextmanager
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -61,6 +62,7 @@ app = FastAPI(
 
 # Include API & Web Routers
 from app.api.applications import router as applications_router
+from app.api.auth import router as auth_router
 from app.api.profile import router as profile_router
 from app.api.queue import router as queue_router
 from app.api.scrapers import router as scrapers_router
@@ -68,6 +70,7 @@ from app.api.settings import router as settings_router
 from app.web.routes import router as web_router
 
 app.include_router(applications_router)
+app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(queue_router)
 app.include_router(scrapers_router)

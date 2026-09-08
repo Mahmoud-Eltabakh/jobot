@@ -1,5 +1,5 @@
 <!-- Scrape Discovery Mode Modal Popup -->
-<div id="modal-container" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+<div id="scrape-modal-backdrop" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -12,7 +12,7 @@
                     <p class="text-xs text-slate-400">Choose how Jobot should run this scraping cycle:</p>
                 </div>
             </div>
-            <button type="button" onclick="document.getElementById('modal-container').remove()" class="text-slate-500 hover:text-slate-300 transition">
+            <button type="button" onclick="document.getElementById('modal-container').innerHTML = ''" class="text-slate-500 hover:text-slate-300 transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
@@ -22,7 +22,7 @@
             <!-- Option 1: Fresh Start (Delete 'New Matches' & Re-Scrape) -->
             <button hx-post="/web/scrape/run?mode=fresh" 
                     hx-target="#modal-container" 
-                    hx-swap="outerHTML"
+                    hx-swap="innerHTML"
                     class="w-full text-left p-4 rounded-xl border border-rose-900/60 bg-rose-950/20 hover:bg-rose-950/50 hover:border-rose-700 transition space-y-1 group active:scale-98">
                 <div class="flex items-center justify-between">
                     <div class="font-bold text-rose-300 flex items-center space-x-1.5">
@@ -39,7 +39,7 @@
             <!-- Option 2: Search More (Incremental Search) -->
             <button hx-post="/web/scrape/run?mode=incremental" 
                     hx-target="#modal-container" 
-                    hx-swap="outerHTML"
+                    hx-swap="innerHTML"
                     class="w-full text-left p-4 rounded-xl border border-indigo-900/60 bg-indigo-950/20 hover:bg-indigo-950/50 hover:border-indigo-700 transition space-y-1 group active:scale-98">
                 <div class="flex items-center justify-between">
                     <div class="font-bold text-indigo-300 flex items-center space-x-1.5">
@@ -56,7 +56,7 @@
 
         <!-- Modal Footer -->
         <div class="flex items-center justify-end border-t border-slate-800 pt-3">
-            <button type="button" onclick="document.getElementById('modal-container').remove()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition">
+            <button type="button" onclick="document.getElementById('modal-container').innerHTML = ''" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition">
                 Cancel
             </button>
         </div>

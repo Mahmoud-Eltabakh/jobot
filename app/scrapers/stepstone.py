@@ -1,11 +1,10 @@
 """Dedicated StepStone Playwright crawler and DOM parser."""
 
-import asyncio
 import logging
 import random
 import re
-from typing import Optional
 from urllib.parse import quote, urljoin
+
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
@@ -24,7 +23,7 @@ class StepStoneScraper(BaseScraper):
 
     BASE_URL = "https://www.stepstone.de"
 
-    def __init__(self, headless: bool = True, user_agent: Optional[str] = None) -> None:
+    def __init__(self, headless: bool = True, user_agent: str | None = None) -> None:
         self.headless = headless
         self.user_agent = user_agent or DEFAULT_USER_AGENT
 
@@ -33,7 +32,7 @@ class StepStoneScraper(BaseScraper):
         cls,
         html_content: str,
         base_url: str = BASE_URL,
-        search_term: Optional[str] = None,
+        search_term: str | None = None,
     ) -> list[ScrapedJob]:
         """Parse StepStone search result cards from raw HTML (for testability and headless runs)."""
         soup = BeautifulSoup(html_content, "html.parser")
@@ -65,20 +64,20 @@ class StepStoneScraper(BaseScraper):
                 company_elem = (
                     card.find("span", attrs={"data-testid": "job-item-company-name"})
                     or card.find("div", attrs={"data-at": "job-item-company-name"})
-                    or card.find("span", class_=re.compile(r"company", re.I))
+                    or card.find("span", class_=re.compile(r"company", re.IGNORECASE))
                 )
                 company = company_elem.get_text(strip=True) if company_elem else ""
 
                 # 3. Location & Remote
                 location_elem = (
                     card.find("span", attrs={"data-testid": "job-item-location"})
-                    or card.find("span", class_=re.compile(r"location", re.I))
+                    or card.find("span", class_=re.compile(r"location", re.IGNORECASE))
                 )
                 location = location_elem.get_text(strip=True) if location_elem else ""
-                is_remote = bool(re.search(r"remote|homeoffice|home-office|mobil", location + " " + card.get_text(), re.I))
+                is_remote = bool(re.search(r"remote|homeoffice|home-office|mobil", location + " " + card.get_text(), re.IGNORECASE))
 
                 # 4. Salary Tags
-                salary_elem = card.find("span", attrs={"data-testid": "job-item-salary"}) or card.find("span", class_=re.compile(r"salary", re.I))
+                salary_elem = card.find("span", attrs={"data-testid": "job-item-salary"}) or card.find("span", class_=re.compile(r"salary", re.IGNORECASE))
                 salary_min = None
                 salary_max = None
                 salary_currency = None
@@ -124,7 +123,7 @@ class StepStoneScraper(BaseScraper):
 
         # AI-Assisted DOM Extraction Fallback if CSS parsing yielded 0 cards on rich detail/listing page
         cleaned_text = html_content.strip()
-        if not scraped_jobs and len(cleaned_text) > 200 and re.search(r"experience|requirements|qualifications|tasks|salary|full-time|developer|engineer", cleaned_text, re.I):
+        if not scraped_jobs and len(cleaned_text) > 200 and re.search(r"experience|requirements|qualifications|tasks|salary|full-time|developer|engineer", cleaned_text, re.IGNORECASE):
             from app.scrapers.ai_extractor import AIScraperExtractor
             fallback_job = AIScraperExtractor._fallback_heuristic_extractor(
                 text=AIScraperExtractor.clean_html_to_markdown_text(html_content),
@@ -142,7 +141,7 @@ class StepStoneScraper(BaseScraper):
         self,
         search_term: str,
         location: str,
-        results_wanted: Optional[int] = None,
+        results_wanted: int | None = None,
         is_remote: bool = False,
     ) -> list[ScrapedJob]:
         """Crawl StepStone search results page using Playwright without artificial limits."""

@@ -1,13 +1,14 @@
 """REST API endpoints for triggering and monitoring scrapers."""
 
-import asyncio
-from typing import Any, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_app_setting, get_session
-from app.db.models import SearchConfig
+from app.db.models import SearchConfig, User
 from app.scrapers.scheduler import ScraperPipeline
 
 router = APIRouter(prefix="/api/scrapers", tags=["Scrapers"])
@@ -16,16 +17,17 @@ router = APIRouter(prefix="/api/scrapers", tags=["Scrapers"])
 class ScrapeTriggerRequest(BaseModel):
     """Optional parameters for on-demand scrape trigger."""
 
-    keywords: Optional[str] = None
-    location: Optional[str] = None
-    results_wanted: Optional[int] = None
+    keywords: str | None = None
+    location: str | None = None
+    results_wanted: int | None = None
 
 
 @router.post("/run")
 async def trigger_scrape_now(
-    params: Optional[ScrapeTriggerRequest] = None,
+    params: ScrapeTriggerRequest | None = None,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Trigger an immediate scraping, filtering, and AI evaluation cycle."""
     if ScraperPipeline.is_running():
@@ -47,6 +49,7 @@ async def trigger_scrape_now(
                 override_keywords=kw,
                 override_location=loc,
                 results_wanted_per_source=rw,
+                user_id=current_user.id,
             )
 
     background_tasks.add_task(_run_job)
@@ -57,9 +60,14 @@ async def trigger_scrape_now(
 
 
 @router.get("/status")
-def get_scraper_status(session: Session = Depends(get_session)) -> dict[str, Any]:
+def get_scraper_status(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get active scraper status, last run statistics, and configured searches."""
-    configs = session.exec(select(SearchConfig)).all()
+    configs = session.exec(
+        select(SearchConfig).where(SearchConfig.user_id == current_user.id)
+    ).all()
     last_stats = get_app_setting("last_scrape_stats", default={})
 
     return {

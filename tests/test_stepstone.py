@@ -1,8 +1,6 @@
 """Tests for StepStone Playwright scraper card parsing and DOM extraction."""
 
-import pytest
 from app.scrapers.stepstone import StepStoneScraper
-
 
 SAMPLE_STEPSTONE_HTML = """
 <html>

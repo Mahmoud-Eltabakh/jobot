@@ -1,13 +1,14 @@
 """Unit and integration tests for Persistent Task Queue and Background Worker."""
 
 import json
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.ai.client import MockAIClient
 from app.db.database import engine, init_db
-from app.db.models import Job, ScrapeTask, UserProfile
+from app.db.models import Job
 from app.main import app
 from app.queue.task_queue import TaskQueue
 from app.queue.worker import QueueWorker
@@ -64,6 +65,12 @@ def test_task_queue_lifecycle():
 def test_queue_rest_api():
     """Test REST endpoints for queue monitoring and task enqueuing."""
     with TestClient(app) as client:
+        register_response = client.post(
+            "/api/auth/register",
+            json={"email": "queue@example.com", "password": "Password123", "full_name": "Queue User"},
+        )
+        assert register_response.status_code == 200
+
         # 1. Enqueue via API
         resp = client.post(
             "/api/queue/enqueue",
@@ -94,12 +101,11 @@ def test_queue_rest_api():
         assert retry_resp.status_code == 200
 
 
-def test_queue_status_web_component():
+def test_queue_status_web_component(authenticated_client: TestClient):
     """Test rendering the live queue status widget."""
-    with TestClient(app) as client:
-        resp = client.get("/web/components/queue-status")
-        assert resp.status_code == 200
-        assert "Queue:" in resp.text
+    resp = authenticated_client.get("/web/components/queue-status")
+    assert resp.status_code == 200
+    assert "Queue:" in resp.text
 
 
 @pytest.mark.asyncio
@@ -183,16 +189,13 @@ def test_queue_control_methods():
         assert deleted
 
 
-def test_queue_web_view_and_control_endpoints():
+def test_queue_web_view_and_control_endpoints(authenticated_client: TestClient):
     """Test GET /web/views/queue and web queue control endpoints."""
-    with TestClient(app) as client:
-        # GET AI Queue View
-        resp = client.get("/web/views/queue")
-        assert resp.status_code == 200
-        assert "Active AI Queue Jobs & Control Center" in resp.text
-        assert "All Tasks" in resp.text
+    resp = authenticated_client.get("/web/views/queue")
+    assert resp.status_code == 200
+    assert "Active AI Queue Jobs & Control Center" in resp.text
+    assert "All Tasks" in resp.text
 
-        # Toggle pause
-        resp_pause = client.post("/web/queue/pause-toggle")
-        assert resp_pause.status_code == 200
-        assert "Worker Paused" in resp_pause.text or "Worker Active" in resp_pause.text
+    resp_pause = authenticated_client.post("/web/queue/pause-toggle")
+    assert resp_pause.status_code == 200
+    assert "Worker Paused" in resp_pause.text or "Worker Active" in resp_pause.text

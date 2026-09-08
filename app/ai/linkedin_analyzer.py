@@ -3,14 +3,15 @@
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
+
 from playwright.async_api import async_playwright
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.ai.client import BaseAIClient, get_ai_client
 from app.ai.embeddings import ProfileEmbedder
 from app.ai.profile_extractor import ExtractedProfile, save_profile_to_db
-from app.db.models import UserProfile, utc_now
+from app.db.models import UserProfile
 from app.db.vector import get_vector_store
 
 logger = logging.getLogger("jobot.ai.linkedin_analyzer")
@@ -50,7 +51,7 @@ class LinkedInProfileAnalyzer:
         cls,
         linkedin_url: str,
         session_cookie: str,
-    ) -> Optional[ExtractedProfile]:
+    ) -> ExtractedProfile | None:
         """
         Fetch structured candidate profile using Tom Quirk's official `linkedin-api` (Voyager REST API).
         """
@@ -162,7 +163,7 @@ class LinkedInProfileAnalyzer:
         linkedin_url: str,
         session_cookie: str,
         headless: bool = True,
-    ) -> Optional[ExtractedProfile]:
+    ) -> ExtractedProfile | None:
         """
         Fetch structured candidate profile using Joeyism's `linkedin_scraper` (Playwright-based).
         """
@@ -237,7 +238,7 @@ class LinkedInProfileAnalyzer:
                     description = getattr(exp, "description", "") or (exp.get("description", "") if isinstance(exp, dict) else "")
 
                     if duration:
-                        yrs_match = re.search(r"(\d+)\s*yr", duration, re.I)
+                        yrs_match = re.search(r"(\d+)\s*yr", duration, re.IGNORECASE)
                         if yrs_match:
                             total_exp_years += float(yrs_match.group(1))
 
@@ -290,7 +291,7 @@ class LinkedInProfileAnalyzer:
     async def fetch_profile_text_via_playwright(
         cls,
         linkedin_url: str,
-        session_cookie: Optional[str] = None,
+        session_cookie: str | None = None,
         headless: bool = True,
     ) -> str:
         """
@@ -397,8 +398,8 @@ class LinkedInProfileAnalyzer:
     async def analyze_profile_text(
         cls,
         raw_text: str,
-        ai_client: Optional[BaseAIClient] = None,
-        linkedin_url: Optional[str] = None,
+        ai_client: BaseAIClient | None = None,
+        linkedin_url: str | None = None,
     ) -> ExtractedProfile:
         """Analyze raw LinkedIn profile content with LLM into structured ExtractedProfile."""
         if not raw_text or not raw_text.strip():
@@ -437,12 +438,9 @@ class LinkedInProfileAnalyzer:
 
             # Strip markdown formatting if any
             clean_json = response.strip()
-            if clean_json.startswith("```json"):
-                clean_json = clean_json[7:]
-            if clean_json.startswith("```"):
-                clean_json = clean_json[3:]
-            if clean_json.endswith("```"):
-                clean_json = clean_json[:-3]
+            clean_json = clean_json.removeprefix("```json")
+            clean_json = clean_json.removeprefix("```")
+            clean_json = clean_json.removesuffix("```")
             clean_json = clean_json.strip()
 
             data = json.loads(clean_json)
@@ -502,14 +500,15 @@ class LinkedInProfileAnalyzer:
         cls,
         session: Session,
         linkedin_url: str,
-        session_cookie: Optional[str] = None,
-        raw_text_override: Optional[str] = None,
-        ai_client: Optional[BaseAIClient] = None,
+        session_cookie: str | None = None,
+        raw_text_override: str | None = None,
+        ai_client: BaseAIClient | None = None,
+        user_id: int | None = None,
     ) -> UserProfile:
         """
         Scrape, analyze, persist to SQLite UserProfile, and re-embed in ChromaDB using li_at session cookie.
         """
-        extracted: Optional[ExtractedProfile] = None
+        extracted: ExtractedProfile | None = None
         raw_text = ""
 
         # 1. Try Tom Quirk's official linkedin-api (Voyager REST API) first if cookie is provided
@@ -551,10 +550,14 @@ class LinkedInProfileAnalyzer:
             raw_text=raw_text,
             session=session,
             source_type="linkedin",
+            user_id=user_id,
         )
 
         if session_cookie and session_cookie.strip():
             user_profile.linkedin_session_cookie = session_cookie.strip()
+            if user_id is not None:
+                from app.db.ownership import encrypt_profile
+                encrypt_profile(user_profile, user_id)
             session.add(user_profile)
             session.commit()
             session.refresh(user_profile)

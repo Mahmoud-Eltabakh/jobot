@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Optional
+
 from sqlmodel import Session, select
 
 from app.ai.client import BaseAIClient, get_ai_client
@@ -54,8 +54,8 @@ class ApplicationGenerator:
         job: Job,
         user_profile: UserProfile,
         tone: str = "professional",
-        custom_instructions: Optional[str] = None,
-        ai_client: Optional[BaseAIClient] = None,
+        custom_instructions: str | None = None,
+        ai_client: BaseAIClient | None = None,
     ) -> str:
         """Generate a tailored cover letter for a specific job posting."""
         system_prompt = COVER_LETTER_SYSTEM_PROMPTS.get(tone, COVER_LETTER_SYSTEM_PROMPTS["professional"])
@@ -106,7 +106,7 @@ Please generate a compelling, tailored cover letter. Do not include placeholder 
         cls,
         job: Job,
         user_profile: UserProfile,
-        ai_client: Optional[BaseAIClient] = None,
+        ai_client: BaseAIClient | None = None,
     ) -> str:
         """Generate ATS-optimized accomplishment bullet points aligned with the target job."""
         client = ai_client or get_ai_client()
@@ -145,13 +145,15 @@ Generate tailored resume accomplishment bullet points and ATS keyword alignment.
         job_id: int,
         material_type: str,
         content_markdown: str,
+        user_id: int,
         tone: str = "professional",
     ) -> ApplicationMaterial:
-        """Persist or update application material in database."""
+        """Persist application material inside an authenticated ownership boundary."""
         existing = session.exec(
             select(ApplicationMaterial).where(
                 ApplicationMaterial.job_id == job_id,
                 ApplicationMaterial.material_type == material_type,
+                ApplicationMaterial.user_id == user_id,
             )
         ).first()
 
@@ -165,6 +167,7 @@ Generate tailored resume accomplishment bullet points and ATS keyword alignment.
             return existing
 
         material = ApplicationMaterial(
+            user_id=user_id,
             job_id=job_id,
             material_type=material_type,
             tone=tone,

@@ -9,6 +9,92 @@
         <p class="text-xs text-slate-400 mt-1">Configure your AI scoring backend, update candidate CV data, and manage search blacklist rules.</p>
     </div>
 
+    <!-- Tailscale SSH Remote Access -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-800 pb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Tailscale SSH Remote Access</h3>
+                <p class="text-[11px] text-slate-500 mt-0.5">Configure the private connection used to reach this Jobot host without opening a public web port.</p>
+            </div>
+            <div hx-get="/api/settings/tailscale/status"
+                 hx-trigger="load"
+                 hx-swap="innerHTML"
+                 class="shrink-0">
+                <span class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-mono">Checking...</span>
+            </div>
+        </div>
+
+        <form id="tailscale-settings-form"
+              hx-post="/api/settings/remote-access"
+              hx-target="#tailscale-save-feedback"
+              class="space-y-4 text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/70">
+                    <span>
+                        <span class="block font-semibold text-slate-200">Enable remote access profile</span>
+                        <span class="block text-[10px] text-slate-500 mt-0.5">Shows the configured Tailscale SSH connection details.</span>
+                    </span>
+                    <input type="checkbox" name="tailscale_enabled" value="true" {% if tailscale_enabled %}checked{% endif %}
+                           class="h-4 w-4 accent-emerald-500">
+                </label>
+
+                <label class="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/70">
+                    <span>
+                        <span class="block font-semibold text-slate-200">Use MagicDNS</span>
+                        <span class="block text-[10px] text-slate-500 mt-0.5">Prefer the device hostname over its Tailscale IP.</span>
+                    </span>
+                    <input type="checkbox" name="tailscale_magic_dns" value="true" {% if tailscale_magic_dns %}checked{% endif %}
+                           class="h-4 w-4 accent-sky-500">
+                </label>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-slate-400 mb-1 font-medium">Tailscale hostname or IP</label>
+                    <input type="text" name="tailscale_hostname" value="{{ tailscale_hostname }}"
+                           placeholder="jobot-host.tailnet-name.ts.net"
+                           pattern="[A-Za-z0-9._:-]*"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1 font-medium">SSH user</label>
+                    <input type="text" name="tailscale_ssh_user" value="{{ tailscale_ssh_user }}"
+                           placeholder="host-user"
+                           pattern="[A-Za-z0-9._-]*"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1 font-medium">SSH port</label>
+                    <input type="number" name="tailscale_ssh_port" value="{{ tailscale_ssh_port }}" min="1" max="65535"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1 font-medium">Jobot port</label>
+                    <input type="number" name="tailscale_app_port" value="{{ tailscale_app_port }}" min="1" max="65535"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
+                </div>
+            </div>
+
+            {% if tailscale_hostname and tailscale_ssh_user %}
+            <div class="rounded-lg border border-sky-900/60 bg-sky-950/20 p-3 space-y-2">
+                <div class="text-[10px] uppercase text-sky-400 font-semibold">SSH forwarding command</div>
+                <code class="block text-[11px] text-slate-300 whitespace-normal break-all">ssh -p {{ tailscale_ssh_port }} -N -L {{ tailscale_app_port }}:127.0.0.1:{{ tailscale_app_port }} {{ tailscale_ssh_user }}@{{ tailscale_hostname }}</code>
+                <p class="text-[10px] text-slate-500">Run this in an SSH-capable client on the remote device, then open <span class="font-mono text-slate-400">http://127.0.0.1:{{ tailscale_app_port }}</span>.</p>
+            </div>
+            {% endif %}
+
+            <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                <p class="text-[10px] text-slate-500">Jobot displays status and connection settings only. It does not run privileged Tailscale or SSH commands.</p>
+                <div class="flex items-center gap-3 shrink-0">
+                    <div id="tailscale-save-feedback"></div>
+                    <button type="submit" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition shadow-md shadow-emerald-600/20 active:scale-95">
+                        Save Remote Access
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
     <!-- Section 1: AI Provider Configurator -->
     <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -110,7 +196,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block text-slate-400 mb-1 font-medium">API Key</label>
-                        <input type="password" name="openai_api_key" value="{{ openai_api_key }}" placeholder="sk-..." 
+                           <input type="password" name="openai_api_key" value="" placeholder="{% if has_openai_api_key %}Saved key (leave blank to keep){% else %}sk-...{% endif %}" autocomplete="new-password"
                                class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono focus:border-emerald-500">
                     </div>
                     <div>
@@ -239,7 +325,7 @@
                 </div>
 
                 <!-- Vector RAG Scale -->
-                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2 md:col-span-2">
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
                     <div class="flex items-center justify-between">
                         <label class="font-semibold text-slate-200">5. Vector RAG Semantic Scale</label>
                         <span id="badge-weight-vector" class="font-mono text-purple-400 font-bold bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/80">{{ weight_vector }}</span>
@@ -248,6 +334,42 @@
                     <input type="range" name="weight_vector" min="0" max="100" value="{{ weight_vector }}" 
                            oninput="document.getElementById('badge-weight-vector').innerText = this.value"
                            class="w-full accent-purple-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Historical Skills Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">6. Prior Role & Historical Skills Scale</label>
+                        <span id="badge-weight-history-skills" class="font-mono text-cyan-400 font-bold bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/80">{{ weight_history_skills }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Past role experience, prior technology overlap, and long-term applied skills.</p>
+                    <input type="range" name="weight_history_skills" min="0" max="100" value="{{ weight_history_skills }}" 
+                           oninput="document.getElementById('badge-weight-history-skills').innerText = this.value"
+                           class="w-full accent-cyan-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Education Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">7. Education Relevance Scale</label>
+                        <span id="badge-weight-education" class="font-mono text-rose-400 font-bold bg-rose-950/80 px-2 py-0.5 rounded border border-rose-800/80">{{ weight_education }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Degree and field-of-study alignment with the job domain and target role.</p>
+                    <input type="range" name="weight_education" min="0" max="100" value="{{ weight_education }}" 
+                           oninput="document.getElementById('badge-weight-education').innerText = this.value"
+                           class="w-full accent-rose-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Projects Scale -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2 md:col-span-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">8. Project Evidence Scale</label>
+                        <span id="badge-weight-projects" class="font-mono text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/80">{{ weight_projects }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Applied portfolio work, technologies used, and project outcomes that support the target role.</p>
+                    <input type="range" name="weight_projects" min="0" max="100" value="{{ weight_projects }}" 
+                           oninput="document.getElementById('badge-weight-projects').innerText = this.value"
+                           class="w-full accent-emerald-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
                 </div>
             </div>
 

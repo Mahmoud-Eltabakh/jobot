@@ -53,3 +53,7 @@ an individual is officially representing the community in public spaces.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the project maintainers. All complaints will be reviewed and
 investigated promptly and fairly.
+
+## Security Vulnerabilities
+
+If you discover a security vulnerability, please do NOT report it in public issues. See our [Security Policy](SECURITY.md) for detailed reporting instructions.

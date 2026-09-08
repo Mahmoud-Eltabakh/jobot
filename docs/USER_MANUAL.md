@@ -7,6 +7,8 @@ Welcome to **Jobot**, your intelligent, privacy-first, automated job search and 
 ## Table of Contents
 1. [System Architecture](#1-system-architecture)
 2. [Quickstart & Installation](#2-quickstart--installation)
+   - [First-Run Account Setup](#first-run-account-setup)
+   - [Encryption Key Setup](#encryption-key-setup)
 3. [Dashboard & Interface Guide](#3-dashboard--interface-guide)
    - [Kanban Board View](#kanban-board-view)
    - [Data Table View](#data-table-view)
@@ -74,6 +76,23 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
+### First-Run Account Setup
+
+When the database has no registered users, Jobot opens the registration page. Create the first account with an email address, display name, and password of at least six characters. Returning users without an active session are redirected to login.
+
+Sessions are stored as revocable opaque tokens in an HTTP-only cookie. Use **Logout** in the top navigation to revoke the current session. Jobs, profiles, notes, filters, application materials, queue tasks, AI settings, scoring weights, and Tailscale preferences are isolated by account.
+
+### Encryption Key Setup
+
+Sensitive profile fields, CV/LinkedIn content, LinkedIn credentials, and provider API keys are encrypted with an account-bound key derived from Jobot's master encryption key.
+
+- In development, Jobot creates `data/.jobot-encryption-key` with owner-only permissions when `ENCRYPTION_KEY` is absent. Back up this file with the database; losing it makes encrypted fields unrecoverable.
+- In production, set `ENCRYPTION_KEY` through the deployment secret manager. Jobot refuses to encrypt data without it.
+- Set `ENCRYPTION_KEY_ID` to identify the active key.
+- During rotation, move the old key to `PREVIOUS_ENCRYPTION_KEYS` using `old-id:old-key`, configure a new key and ID, start Jobot to migrate accessible records, verify them, and only then retire the previous key.
+
+Never commit encryption keys, session cookies, or provider credentials to source control. A database backup without its matching encryption key is intentionally insufficient to recover protected data.
+
 ---
 
 ## 3. Secure Phone Access via SSH Tunnel
@@ -121,6 +140,21 @@ ssh -N -L 8000:127.0.0.1:8000 your-user@your-host
 - If SSH says permission denied, check the private key and authorized_keys setup.
 - If the port is already in use, choose a different local forwarding port and update the browser target.
 - If the tunnel is unstable, check for host firewall or network restrictions and prefer a private network path over public exposure.
+
+### Tailscale SSH Settings panel
+
+Open **Settings → Tailscale SSH Remote Access** to manage the connection profile:
+
+- **Enable remote access profile** controls whether the saved profile is considered active.
+- **Use MagicDNS** indicates that the Tailscale device hostname should be preferred over an IP address.
+- **Tailscale hostname or IP** identifies the workstation running Jobot.
+- **SSH user** is the operating-system account accepted by Tailscale SSH.
+- **SSH port** defaults to `22`; change it only when your host SSH service uses a different port.
+- **Jobot port** is the local application port to forward, normally `8000`.
+
+The status badge is loaded separately so an unavailable Tailscale daemon does not delay the rest of Settings. It reports **Connected**, **Offline**, or **Not installed**. After saving a hostname and SSH user, reopen Settings to see the generated forwarding command.
+
+Jobot intentionally does not run `tailscale up`, `tailscale down`, or SSH commands. Install Tailscale, authenticate the host, enable Tailscale SSH according to your tailnet policy, and run the displayed forwarding command from the remote device.
 
 ---
 

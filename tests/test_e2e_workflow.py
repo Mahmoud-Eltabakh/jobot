@@ -2,8 +2,9 @@
 
 import json
 import time
+
 import pytest
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.ai.client import MockAIClient
@@ -12,11 +13,9 @@ from app.ai.feedback import FeedbackManager
 from app.db.database import engine, init_db
 from app.db.models import FilterRule, Job, JobStatus, UserProfile
 from app.db.vector import VectorStore, get_vector_store
-from app.main import app
 from app.scrapers.base import ScrapedJob
-from app.scrapers.dedup import compute_dedup_hash, save_scraped_jobs
+from app.scrapers.dedup import save_scraped_jobs
 from app.scrapers.filter_pipeline import JobFilterPipeline
-from app.scrapers.scheduler import ScraperPipeline
 
 
 @pytest.fixture(autouse=True)
@@ -143,14 +142,17 @@ async def test_full_pipeline_e2e_workflow() -> None:
         assert delta > 0
 
 
-def test_web_ui_dashboard_e2e_interaction() -> None:
+def test_web_ui_dashboard_e2e_interaction(
+    authenticated_client: TestClient,
+    authenticated_user: dict,
+) -> None:
     """Verify Web Dashboard displays jobs and allows status updates via API/HTMX."""
-    client = TestClient(app)
     timestamp = int(time.time() * 1000)
 
     # Insert a unique job
     with Session(engine) as session:
         job = Job(
+            user_id=authenticated_user["id"],
             source="linkedin",
             title=f"Fullstack Python Engineer {timestamp}",
             company="ModernStack",
@@ -167,20 +169,20 @@ def test_web_ui_dashboard_e2e_interaction() -> None:
         job_id = job.id
 
     # 1. Verify GET /
-    res_home = client.get("/")
+    res_home = authenticated_client.get("/")
     assert res_home.status_code == 200
     assert "Jobot" in res_home.text
 
     # 2. Verify GET /web/views/kanban
-    res_kanban = client.get("/web/views/kanban")
+    res_kanban = authenticated_client.get("/web/views/kanban")
     assert res_kanban.status_code == 200
     assert "Fullstack Python Engineer" in res_kanban.text
 
     # 3. Verify GET /web/views/table
-    res_table = client.get("/web/views/table")
+    res_table = authenticated_client.get("/web/views/table")
     assert res_table.status_code == 200
     assert "ModernStack" in res_table.text
 
     # 4. Verify PUT /api/jobs/{id}/status via Form data
-    res_update = client.put(f"/api/jobs/{job_id}/status", data={"new_status": "1. interview"})
+    res_update = authenticated_client.put(f"/api/jobs/{job_id}/status", data={"new_status": "1. interview"})
     assert res_update.status_code == 200

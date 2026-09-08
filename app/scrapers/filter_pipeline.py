@@ -1,15 +1,48 @@
 """Title, company, and keyword pre-filter pipeline for filtering out unwanted jobs before AI evaluation."""
 
+import concurrent.futures
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional, Union
+
 from sqlmodel import Session, select
 
-from app.db.models import FilterRule, Job, JobStatus, utc_now
+from app.db.models import FilterRule, Job, JobStatus
 from app.scrapers.base import ScrapedJob
 
 logger = logging.getLogger("jobot.scrapers.filter_pipeline")
+
+# Timeout (seconds) for a single regex match to prevent ReDoS catastrophic backtracking
+_REGEX_TIMEOUT_SECONDS = 1.0
+
+# Pre-compiled patterns that signal a potentially catastrophic regex
+_DANGEROUS_PATTERN = re.compile(
+    r"(\([^)]*[+*][^)]*\)[+*])"  # e.g. (a+)+ or (a*)* — exponential backtracking risk
+)
+_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="regex_guard")
+
+
+def _is_safe_regex(pattern: str) -> bool:
+    """Return False if the regex exhibits known catastrophic backtracking constructs."""
+    return not bool(_DANGEROUS_PATTERN.search(pattern))
+
+
+def _safe_regex_search(pattern: str, text: str, flags: int = 0) -> bool:
+    """Execute a regex search with a hard timeout to prevent ReDoS.
+
+    Returns False if the pattern times out or raises an error.
+    """
+    future = _EXECUTOR.submit(re.search, pattern, text, flags)
+    try:
+        result = future.result(timeout=_REGEX_TIMEOUT_SECONDS)
+        return result is not None
+    except concurrent.futures.TimeoutError:
+        logger.warning("Regex pattern timed out (possible ReDoS): '%s'", pattern[:80])
+        future.cancel()
+        return False
+    except re.error as err:
+        logger.warning("Invalid regex pattern '%s': %s", pattern[:80], err)
+        return False
 
 
 @dataclass
@@ -17,8 +50,8 @@ class FilterResult:
     """Outcome of evaluating a job against active blacklist filter rules."""
 
     is_filtered: bool
-    matched_rule: Optional[FilterRule] = None
-    reason: Optional[str] = None
+    matched_rule: FilterRule | None = None
+    reason: str | None = None
 
 
 class JobFilterPipeline:
@@ -27,7 +60,7 @@ class JobFilterPipeline:
     @classmethod
     def evaluate_job(
         cls,
-        job: Union[ScrapedJob, Job],
+        job: ScrapedJob | Job,
         active_rules: list[FilterRule],
     ) -> FilterResult:
         """
@@ -50,27 +83,23 @@ class JobFilterPipeline:
             matched = False
 
             if rule.is_regex:
-                try:
-                    regex_flags = re.IGNORECASE
-                    if rule.rule_type == "title" and re.search(pattern, job.title or "", regex_flags):
-                        matched = True
-                    elif rule.rule_type == "company" and re.search(pattern, job.company or "", regex_flags):
-                        matched = True
-                    elif rule.rule_type == "keyword" and (
-                        re.search(pattern, job.description or "", regex_flags)
-                        or re.search(pattern, job.title or "", regex_flags)
-                    ):
-                        matched = True
-                except re.error as err:
-                    logger.warning("Invalid regex in FilterRule id=%s pattern='%s': %s", rule.id, pattern, err)
+                if not _is_safe_regex(pattern):
+                    logger.warning(
+                        "FilterRule id=%s pattern='%s' rejected: potential catastrophic backtracking (ReDoS)",
+                        rule.id, pattern[:80],
+                    )
                     continue
+                regex_flags = re.IGNORECASE
+                if rule.rule_type == "title":
+                    matched = _safe_regex_search(pattern, job.title or "", regex_flags)
+                elif rule.rule_type == "company":
+                    matched = _safe_regex_search(pattern, job.company or "", regex_flags)
+                elif rule.rule_type == "keyword":
+                    matched = _safe_regex_search(pattern, job.description or "", regex_flags) or \
+                              _safe_regex_search(pattern, job.title or "", regex_flags)
             else:
                 pat_lower = pattern.lower()
-                if rule.rule_type == "title" and pat_lower in title_lower:
-                    matched = True
-                elif rule.rule_type == "company" and pat_lower in company_lower:
-                    matched = True
-                elif rule.rule_type == "keyword" and (pat_lower in desc_lower or pat_lower in title_lower):
+                if rule.rule_type == "title" and pat_lower in title_lower or rule.rule_type == "company" and pat_lower in company_lower or rule.rule_type == "keyword" and (pat_lower in desc_lower or pat_lower in title_lower):
                     matched = True
 
             if matched:
@@ -85,6 +114,7 @@ class JobFilterPipeline:
         cls,
         jobs: list[Job],
         session: Session,
+        user_id: int | None = None,
     ) -> tuple[list[Job], list[Job]]:
         """
         Apply active blacklist rules to newly inserted jobs.
@@ -95,9 +125,10 @@ class JobFilterPipeline:
         if not jobs:
             return [], []
 
-        active_rules = session.exec(
-            select(FilterRule).where(FilterRule.is_active.is_(True))
-        ).all()
+        stmt = select(FilterRule).where(FilterRule.is_active.is_(True))
+        if user_id is not None:
+            stmt = stmt.where(FilterRule.user_id == user_id)
+        active_rules = session.exec(stmt).all()
 
         approved_for_ai: list[Job] = []
         filtered_out: list[Job] = []

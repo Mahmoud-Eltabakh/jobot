@@ -1,14 +1,14 @@
 """Tests for ScraperPipeline orchestrator, JobotScheduler, and REST API endpoints."""
 
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.ai.client import MockAIClient
 from app.db.database import engine, init_db
-from app.db.models import FilterRule, Job, SearchConfig, UserProfile
-from app.main import app
+from app.db.models import FilterRule
 from app.scrapers.base import ScrapedJob
 from app.scrapers.scheduler import ScraperPipeline
 
@@ -69,22 +69,19 @@ async def test_scraper_pipeline_full_run() -> None:
             assert stats["ai_evaluated"] == 1
 
 
-def test_scraper_api_endpoints() -> None:
+def test_scraper_api_endpoints(authenticated_client: TestClient) -> None:
     """Test REST API trigger and status endpoints."""
     with patch("app.scrapers.scheduler.ScraperPipeline.run_full_pipeline", new_callable=AsyncMock):
-        with TestClient(app) as client:
-            # Status endpoint
-            resp_status = client.get("/api/scrapers/status")
-            assert resp_status.status_code == 200
-            data_status = resp_status.json()
-            assert "is_running" in data_status
-            assert "active_configs" in data_status
+        resp_status = authenticated_client.get("/api/scrapers/status")
+        assert resp_status.status_code == 200
+        data_status = resp_status.json()
+        assert "is_running" in data_status
+        assert "active_configs" in data_status
 
-            # Trigger endpoint
-            resp_run = client.post(
-                "/api/scrapers/run",
-                json={"keywords": "Python", "location": "Remote", "results_wanted": 5},
-            )
-            assert resp_run.status_code == 200
-            data_run = resp_run.json()
-            assert data_run["status"] in ("triggered", "already_running")
+        resp_run = authenticated_client.post(
+            "/api/scrapers/run",
+            json={"keywords": "Python", "location": "Remote", "results_wanted": 5},
+        )
+        assert resp_run.status_code == 200
+        data_run = resp_run.json()
+        assert data_run["status"] in ("triggered", "already_running")

@@ -1,6 +1,7 @@
 """Tests for Job Evaluator agent, prompt injection protection, and database update."""
 
 import json
+
 import pytest
 from sqlmodel import Session, select
 
@@ -218,6 +219,40 @@ def test_normalized_scoring_with_custom_weights() -> None:
     assert eval_result.fit_score > 0
     assert eval_result.breakdown is not None
     assert eval_result.breakdown.skills_score == 100
+
+
+def test_history_education_and_project_signals_raise_fit_score() -> None:
+    """Historical profile evidence should raise the score when it matches the job requirements."""
+    custom_weights = {
+        "skills": 35.0,
+        "title": 20.0,
+        "location": 10.0,
+        "experience": 10.0,
+        "vector": 0.0,
+        "history_skills": 15.0,
+        "education": 5.0,
+        "projects": 5.0,
+    }
+
+    eval_result = JobEvaluator.compute_actual_skill_fit(
+        candidate_summary=(
+            'Name: Dev\n'
+            'Skills: ["Python", "FastAPI"]\n'
+            'Target Titles: ["Backend Engineer"]\n'
+            'Experience History: [{"title": "Senior Python Engineer", "company": "Acme", "description": "Built FastAPI and Redis microservices in Python."}]\n'
+            'Education: [{"school": "MIT", "degree": "B.S.", "field_of_study": "Computer Science"}]\n'
+            'Projects: [{"name": "Inventory API", "technologies": ["FastAPI", "Redis", "PostgreSQL"]}]\n'
+            'Experience: 5 years'
+        ),
+        job_description="Looking for Backend Engineer with Python, FastAPI, Redis, and PostgreSQL experience in a microservices platform.",
+        candidate_skills=["Python", "FastAPI"],
+        target_titles=["Backend Engineer"],
+        scoring_weights=custom_weights,
+    )
+
+    assert eval_result.fit_score >= 75
+    assert eval_result.breakdown is not None
+    assert eval_result.breakdown.skills_score >= 50
 
 
 @pytest.mark.asyncio

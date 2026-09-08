@@ -1,7 +1,7 @@
 """Candidate feedback vector management and adaptive fit score re-weighting in ChromaDB."""
 
 import logging
-from typing import Any, Optional
+
 from sqlmodel import Session
 
 from app.ai.client import BaseAIClient
@@ -30,11 +30,11 @@ class FeedbackManager:
         cls,
         job_id: int,
         status: str,
-        note_text: Optional[str],
+        note_text: str | None,
         session: Session,
         vector_store: VectorStore,
         ai_client: BaseAIClient,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Record positive or negative candidate reaction as vector embedding in ChromaDB.
         

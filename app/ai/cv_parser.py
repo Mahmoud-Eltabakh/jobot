@@ -3,9 +3,9 @@
 import io
 import logging
 import re
-import zipfile
 import xml.etree.ElementTree as ET
-from typing import Optional
+import zipfile
+
 import pdfplumber
 import pypdf
 

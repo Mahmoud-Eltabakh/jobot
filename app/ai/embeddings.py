@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+
 from app.ai.client import BaseAIClient
 from app.ai.profile_extractor import ExtractedProfile
 from app.db.vector import VectorStore

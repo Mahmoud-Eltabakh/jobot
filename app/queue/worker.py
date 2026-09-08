@@ -3,13 +3,14 @@
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
+
 from sqlmodel import Session, select
 
 from app.ai.client import BaseAIClient, get_ai_client
 from app.ai.evaluator import JobEvaluator
 from app.db.database import engine
-from app.db.models import Job, ScrapeTask, UserProfile, utc_now
+from app.db.models import Job, ScrapeTask
 from app.queue.task_queue import TaskQueue
 from app.scrapers.base import ScrapedJob
 from app.scrapers.dedup import save_scraped_jobs
@@ -27,12 +28,12 @@ class QueueWorker:
     def __init__(
         self,
         poll_interval_seconds: float = 2.0,
-        ai_client: Optional[BaseAIClient] = None,
+        ai_client: BaseAIClient | None = None,
     ) -> None:
         self.poll_interval = poll_interval_seconds
         self.ai_client = ai_client
         self._running: bool = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
     def start(self) -> None:
         """Start background worker task."""
@@ -74,11 +75,11 @@ class QueueWorker:
 
         try:
             if task.task_type == "scrape_query":
-                await self._handle_scrape_query(payload, session)
+                await self._handle_scrape_query(payload, session, task.user_id)
             elif task.task_type == "evaluate_job":
-                await self._handle_evaluate_job(payload, session)
+                await self._handle_evaluate_job(payload, session, task.user_id)
             elif task.task_type == "full_discovery":
-                await self._handle_full_discovery(payload, session)
+                await self._handle_full_discovery(payload, session, task.user_id)
             else:
                 logger.warning("Unknown task type '%s' for task id=%d", task.task_type, task.id)
 
@@ -87,7 +88,7 @@ class QueueWorker:
             logger.error("Failed processing task id=%d: %s", task.id, err)
             TaskQueue.mark_failed(session, task.id, str(err))
 
-    async def _handle_scrape_query(self, payload: dict[str, Any], session: Session) -> None:
+    async def _handle_scrape_query(self, payload: dict[str, Any], session: Session, user_id: int | None) -> None:
         """Execute single search query across scrapers and queue new jobs for evaluation."""
         platform = payload.get("platform", "all")
         keywords = payload.get("keywords", "")
@@ -127,10 +128,10 @@ class QueueWorker:
                 logger.warning("StepStone scrape failed in queue: %s", err)
 
         # 3. Save & pre-filter
-        inserted, _ = save_scraped_jobs(scraped_jobs, session)
+        inserted, _ = save_scraped_jobs(scraped_jobs, session, user_id=user_id)
         if inserted:
             filter_pipeline = JobFilterPipeline()
-            approved, _ = filter_pipeline.apply_filters_and_save(inserted, session)
+            approved, _ = filter_pipeline.apply_filters_and_save(inserted, session, user_id=user_id)
             
             # Queue evaluation tasks for approved jobs
             for job in approved:
@@ -138,43 +139,54 @@ class QueueWorker:
                     session=session,
                     task_type="evaluate_job",
                     payload={"job_id": job.id},
+                    user_id=user_id,
                 )
             logger.info("Enqueued %d jobs for AI fit evaluation", len(approved))
 
-    async def _handle_evaluate_job(self, payload: dict[str, Any], session: Session) -> None:
-        """Evaluate a single job with AI matching engine."""
+    async def _handle_evaluate_job(self, payload: dict[str, Any], session: Session, user_id: int | None) -> None:
+        """Evaluate a single job with AI matching engine using per-user AI configuration."""
         job_id = payload.get("job_id")
         if not job_id:
             return
+        job = session.exec(select(Job).where(Job.id == job_id, Job.user_id == user_id)).first()
+        if not job:
+            return
 
-        client = self.ai_client or get_ai_client()
+        # Resolve AI client with per-user configuration (honours user-specific Ollama URL / model)
+        client = self.ai_client or get_ai_client(session=session, user_id=user_id)
         updated_job = await JobEvaluator.evaluate_and_update_job(
             job_id=job_id,
             session=session,
             ai_client=client,
+            user_id=user_id,
         )
         if updated_job:
             logger.info("Evaluated job id=%d '%s' fit_score=%s", updated_job.id, updated_job.title, updated_job.fit_score)
 
-    async def _handle_full_discovery(self, payload: dict[str, Any], session: Session) -> None:
-        """Generate intelligent search queries and enqueue them as scrape_query tasks."""
-        client = self.ai_client or get_ai_client()
+    async def _handle_full_discovery(self, payload: dict[str, Any], session: Session, user_id: int | None) -> None:
+        """Generate intelligent search queries and enqueue them as scrape_query tasks.
+
+        Uses per-user AI configuration for query generation.
+        """
+        client = self.ai_client or get_ai_client(session=session, user_id=user_id)
         queries = await AIQueryStrategist.generate_search_queries(
             session=session,
             max_queries=None,
             ai_client=client,
+            user_id=user_id,
         )
         for platform, kw, loc in queries:
             TaskQueue.enqueue(
                 session=session,
                 task_type="scrape_query",
                 payload={"platform": platform, "keywords": kw, "location": loc, "results_wanted": None},
+                user_id=user_id,
             )
         logger.info("Enqueued %d search query tasks for full discovery", len(queries))
 
 
 # Global worker instance
-_queue_worker: Optional[QueueWorker] = None
+_queue_worker: QueueWorker | None = None
 
 
 def get_queue_worker() -> QueueWorker:

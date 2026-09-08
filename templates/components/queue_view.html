@@ -1,8 +1,9 @@
 <!-- Active AI Task Queue & Control Center Component -->
 <div hx-get="/web/views/queue?status_filter={{ status_filter }}&q={{ q }}" 
      hx-trigger="every 3s" 
-     hx-target="#view-container" 
+    hx-target="this" 
      hx-swap="outerHTML"
+    hx-sync="this:replace"
      class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl space-y-6 overflow-y-auto custom-scrollbar max-h-[calc(100vh-160px)]">
 
     <!-- View Header & Controls -->
@@ -48,6 +49,7 @@
 <!-- Trigger Full Discovery with Scrape Modal -->
             <button hx-get="/web/components/scrape-modal" 
                     hx-target="#modal-container"
+                    hx-swap="innerHTML"
                     class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 active:scale-95 transition flex items-center space-x-1.5">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
                 <span>Start Scraping Discovery</span>
