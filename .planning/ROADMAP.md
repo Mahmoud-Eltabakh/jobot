@@ -74,25 +74,34 @@
 
 ## Milestone 2: Production Real-Data Queue Engine & Live Integrations
 
-### Phase 10: Persistent SQLite Task Queue & Continuous Scraping Worker
+### Phase 10: Persistent SQLite Task Queue & Continuous Scraping Worker (Complete)
 - **Goal**: Implement a persistent SQLite-backed task queue and async background worker loop for continuous, resilient job discovery and batch AI evaluation.
 - **Plans**:
-  - `10-01-PLAN.md`: `ScrapeTask` SQLModel queue schema, state machine transitions, and persistent task storage.
-  - `10-02-PLAN.md`: Async queue worker daemon with rate-limiting, job dispatching, and failure tracking.
-  - `10-03-PLAN.md`: Real-time queue monitoring REST API and topbar UI status widget.
-  - `10-04-PLAN.md`: Verification & integration tests for queue reliability and continuous scraping.
+  - `10-01-PLAN.md`: `ScrapeTask` SQLModel queue schema, state machine transitions, and persistent task storage. — ✓ Complete
+  - `10-02-PLAN.md`: Async queue worker daemon with rate-limiting, job dispatching, and failure tracking. — ✓ Complete
+  - `10-03-PLAN.md`: Real-time queue monitoring REST API and HTMX **AI Queue View & Control Center** tab. — ✓ Complete
+  - `10-04-PLAN.md`: Verification & integration tests for queue reliability and continuous scraping. — ✓ Complete
 
-### Phase 11: Authenticated LinkedIn Login & Session Manager
-- **Goal**: Build automated Playwright credential login and cookie session persistence for live, rich LinkedIn profile synchronization.
+### Phase 11: Authenticated LinkedIn Session Manager & Profile Analysis (Complete)
+- **Goal**: Build automated cookie session persistence (`li_at`), `linkedin-api` Voyager REST API, and Joeyism `linkedin_scraper` integration for rich LinkedIn profile synchronization.
 - **Plans**:
-  - `11-01-PLAN.md`: Playwright login handler with credential support, 2FA prompt detection, and session cookie capture.
-  - `11-02-PLAN.md`: Authenticated profile DOM extractor for full employment history, skills, and endorsements.
-  - `11-03-PLAN.md`: UI login modal / credential form on the Profile tab with live status feedback.
-  - `11-04-PLAN.md`: Verification & live session handling tests.
+  - `11-01-PLAN.md`: `li_at` cookie injection and multi-stage profile sync handler (`linkedin-api` REST + Joeyism `linkedin_scraper` + Playwright). — ✓ Complete
+  - `11-02-PLAN.md`: Authenticated profile DOM extractor for full employment history, skills, and education. — ✓ Complete
+  - `11-03-PLAN.md`: Profile UI card with `li_at` cookie sync and explanatory notice in the Profile tab. — ✓ Complete
+  - `11-04-PLAN.md`: Verification & live session handling tests. — ✓ Complete
 
-### Phase 12: Strict Real-Data Enforcement & Actionable Error UI
-- **Goal**: Eliminate all synthetic mock fallbacks across runtime scrapers, analyzers, and AI evaluators, replacing them with explicit actionable error alerts in the web UI.
+### Phase 12: Strict Real-Data Enforcement, Scoring Calibration & Actionable Error UI (Complete)
+- **Goal**: Eliminate all synthetic mock fallbacks across runtime scrapers, analyzers, and AI evaluators, replacing them with normalized profile-skill-based fit scoring, parameter calibration sliders, and actionable UI error banners.
 - **Plans**:
-  - `12-01-PLAN.md`: Audit and remove synthetic placeholder fallbacks in `StepStoneScraper`, `AIScraperExtractor`, `LinkedInProfileAnalyzer`, and AI evaluators in production execution.
-  - `12-02-PLAN.md`: Actionable UI alert banners and notification toast system for offline Ollama or blocked scraper targets.
-  - `12-03-PLAN.md`: Diagnostics health endpoint and test suite verifying zero-mock real execution.
+  - `12-01-PLAN.md`: Audit and remove synthetic placeholder fallbacks in `StepStoneScraper`, `AIScraperExtractor`, `LinkedInProfileAnalyzer`, and AI evaluators in production execution. — ✓ Complete
+  - `12-02-PLAN.md`: Actionable UI alert banners, toast notification system, and interactive parameter scoring calibration sliders in Settings. — ✓ Complete
+  - `12-03-PLAN.md`: Diagnostics health endpoint, auto-purging of non-matching jobs (0% fit score), and test suite verifying real execution and parameter calibration. — ✓ Complete
+
+## Milestone 3: Secure Remote Access & Phone SSH Tunnel (Active)
+
+### Phase 13: Secure Phone Access Through an SSH Tunnel (Complete)
+- **Goal**: Allow Jobot to be used from a phone or secondary device over a secure SSH tunnel while the app and its local AI stack remain on the main machine.
+- **Plans**:
+  - `13-01-PLAN.md`: Tunnel design, SSH key setup, and secure remote access architecture. — ✓ Complete
+  - `13-02-PLAN.md`: Browser/mobile access flow, forwarding rules, and user guidance for phone usage. — ✓ Complete
+  - `13-03-PLAN.md`: Security verification, operational checklist, and support docs. — ✓ Complete

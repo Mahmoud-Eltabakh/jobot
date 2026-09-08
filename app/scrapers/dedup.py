@@ -83,7 +83,7 @@ def save_scraped_jobs(
             salary_currency=sj.salary_currency,
             url=sj.url,
             description=sj.description,
-            status=JobStatus.SEEN.value,
+            status=JobStatus.NEW.value,
             dedup_hash=h,
             created_at=utc_now(),
             updated_at=utc_now(),

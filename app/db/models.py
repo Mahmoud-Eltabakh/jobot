@@ -14,6 +14,7 @@ def utc_now() -> datetime:
 class JobStatus(str, Enum):
     """Lifecycle status stages for job applications."""
 
+    NEW = "new"
     SEEN = "seen"
     APPLIED = "applied"
     WAITING = "waiting for respond"
@@ -54,7 +55,7 @@ class Job(SQLModel, table=True):
     missing_skills_json: Optional[str] = Field(default=None)  # JSON list of missing skills
 
     # Status & Deduplication
-    status: str = Field(default=JobStatus.SEEN.value, index=True)
+    status: str = Field(default=JobStatus.NEW.value, index=True)
     dedup_hash: str = Field(unique=True, index=True)  # SHA-256 of normalized company+title+location
 
     # Timestamps
@@ -94,6 +95,7 @@ class UserProfile(SQLModel, table=True):
     experience_history_json: str = Field(default="[]")  # JSON list of past roles dicts
     education_json: str = Field(default="[]")  # JSON list of education dicts
     cv_raw_text: Optional[str] = Field(default=None)
+    linkedin_raw_text: Optional[str] = Field(default=None)
     linkedin_url: Optional[str] = Field(default=None)
     linkedin_session_cookie: Optional[str] = Field(default=None)
     linkedin_data_json: Optional[str] = Field(default=None)

@@ -11,5 +11,6 @@ elif [[ "$MODE" == "--host-ollama" || "$MODE" == "host-ollama" ]]; then
 fi
 
 docker compose -f "$COMPOSE_FILE" up --build -d
+docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
 
 echo "Jobot is running at http://localhost:8000 (Mode: $MODE)"

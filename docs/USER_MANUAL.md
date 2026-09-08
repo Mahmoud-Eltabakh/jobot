@@ -76,7 +76,55 @@ Open [http://localhost:8000](http://localhost:8000) in your browser.
 
 ---
 
-## 3. Dashboard & Interface Guide
+## 3. Secure Phone Access via SSH Tunnel
+
+If you want to use Jobot on a phone or tablet while keeping the main workstation as the application brain, use SSH tunneling instead of exposing the app to the public internet.
+
+### Why this pattern matters
+
+- Jobot, Ollama, SQLite, ChromaDB, and the scraper workers stay on the host machine.
+- Your phone functions as a thin client, not a second runtime.
+- The connection is encrypted and authenticated via SSH.
+- No direct public port is required for the app.
+
+### Step-by-step
+
+1. Make sure the host machine is running Jobot locally. The app should be bound to the local loopback interface or a private network address only.
+2. Generate and install an SSH key for the host if you have not done so already.
+3. Connect to the host with a tunnel that forwards the Jobot port:
+
+```powershell
+# Windows PowerShell
+ssh -N -L 8000:127.0.0.1:8000 your-user@your-host
+```
+
+```bash
+# Linux / macOS
+ssh -N -L 8000:127.0.0.1:8000 your-user@your-host
+```
+
+4. Confirm the forwarded endpoint is reachable from the device you are using.
+5. Open the Jobot UI through the forwarded address in the browser.
+6. When finished, close the SSH tunnel and verify the process is no longer exposed to the wider network.
+
+### Security rules
+
+- Prefer key-based SSH authentication and disable password-only logins.
+- Restrict forwarding to the exact Jobot port only.
+- Do not open a public port on the router or firewall.
+- Keep the database, AI stack, and scrapers local to the host.
+- Treat mobile access as convenience access, not as a distributed deployment.
+
+### Troubleshooting
+
+- If the browser says connection refused, confirm that Jobot is actually running locally on the host and the port is correct.
+- If SSH says permission denied, check the private key and authorized_keys setup.
+- If the port is already in use, choose a different local forwarding port and update the browser target.
+- If the tunnel is unstable, check for host firewall or network restrictions and prefer a private network path over public exposure.
+
+---
+
+## 4. Dashboard & Interface Guide
 
 ### Kanban Board View
 Organizes opportunities across 8 distinct lifecycle stages:
@@ -120,7 +168,7 @@ Click any job card to open the slide-over inspector featuring 4 dedicated tabs:
 
 ---
 
-## 4. AI Cover Letter Generator & Resume Tailoring
+## 5. AI Cover Letter Generator & Resume Tailoring
 
 ### Custom Tone Cover Letters
 Inside the Job Inspector drawer, switch to the **AI Cover Letter** tab:
@@ -143,7 +191,7 @@ Switch to the **Tailored Resume** tab:
 
 ---
 
-## 5. Profile Management & LinkedIn AI Ingestion
+## 6. Profile Management & LinkedIn AI Ingestion
 
 ### Profile Editing & Skills Matrix
 Navigate to the **Profile** tab in the top navigation bar:
@@ -166,7 +214,7 @@ Navigate to the **Profile** tab in the top navigation bar:
 
 ---
 
-## 6. AI Provider Setup & Hardware Acceleration
+## 7. AI Provider Setup & Hardware Acceleration
 
 ### Local Ollama (Default & Privacy-First)
 In the **Settings** panel, choose your AI backend:
@@ -189,7 +237,7 @@ In the **Settings** panel, choose your AI backend:
 
 ---
 
-## 7. Normalized Scoring & UI Parameter Calibration
+## 8. Normalized Scoring & UI Parameter Calibration
 
 ### Normalized Sub-Factors
 Jobot computes candidate-to-job fit scores by normalizing parameters into 0–100% ratios:
@@ -207,14 +255,14 @@ Navigate to the **Settings** tab &rarr; **Scoring Engine Calibration & Fine-Tuni
 
 ---
 
-## 8. Scrapers & Background Task Queue
+## 9. Scrapers & Background Task Queue
 - **Automated Runs**: Scrapers automatically run on a periodic schedule (e.g., every 6, 12, or 24 hours).
 - **Manual Trigger**: Click **"Scrape Now"** on the dashboard to immediately fetch the latest postings.
 - **Deduplication**: Automatic SHA-256 deduplication prevents duplicate job cards.
 
 ---
 
-## 9. Title, Company & Keyword Blacklists
+## 10. Title, Company & Keyword Blacklists
 Conserve compute and hide unwanted roles before AI scoring:
 - **Title Blacklist**: Exclude terms like `"Director"`, `"Lead"`, `"Intern"`, `"Staff"`.
 - **Company Blacklist**: Exclude specific employers.
@@ -222,13 +270,13 @@ Conserve compute and hide unwanted roles before AI scoring:
 
 ---
 
-## 10. Adaptive Feedback Loop
+## 11. Adaptive Feedback Loop
 - Tagging jobs as `not a good fit` or adding critical notes updates the vector database and suggests new blacklist keywords.
 - Advancing jobs to `applied` or `interview` stages strengthens positive semantic embeddings for future scoring.
 
 ---
 
-## 11. Docker & Kubernetes Deployment
+## 12. Docker & Kubernetes Deployment
 
 ### Docker Compose
 Jobot provides two Docker launch modes:

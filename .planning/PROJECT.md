@@ -12,20 +12,20 @@ Continuously discover high-relevance job opportunities across multiple platforms
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] **Multi-Source Scraping**: Integration of `python-jobspy` for LinkedIn and Google Jobs, plus a dedicated Playwright scraper for StepStone. (Phase 3 & Phase 9)
+- [x] **Background Scheduling & Worker**: Periodic background job extraction and persistent SQLite async task queue (`ScrapeTask`). (Phase 3 & Phase 10)
+- [x] **Profile & CV Ingestion**: Joined CV (PDF/DOCX) and LinkedIn profile ingestion (`li_at` cookie + `linkedin-api` + Joeyism `linkedin_scraper`) with RAG vector sync. (Phase 2, Phase 7, Phase 11)
+- [x] **Pluggable AI & Vector RAG Engine**: Dual AI provider backend supporting Local Ollama (`llama3.1`, `qwen2.5`, `job-searcher-qwen3`) or Cloud APIs (OpenAI, Groq) + ChromaDB vector embeddings. (Phase 2 & Phase 12)
+- [x] **Modern Web Dashboard**: Pure Python web frontend (FastAPI + HTMX + Tailwind CSS) with 8-stage Kanban board, sortable Data Table, Job Inspector drawer, Settings panel, Profile manager, and **AI Queue Control Center**. (Phase 4, Phase 7, Phase 10)
+- [x] **Comprehensive Status Tracking**: Lifecycle statuses: `seen`, `applied`, `waiting for respond`, `1. interview`, `2. interview`, `3. interview`, `not a good fit`, `rejected`. (Phase 4)
+- [x] **Feedback Loop & Continuous Learning**: User feedback notes and status adjustments dynamically tune vector embeddings weights, prompt few-shots, and search query keywords. (Phase 5)
+- [x] **Configurable Search & AI Settings**: Custom search titles, target locations, salary ranges, blacklist keywords, parameter scoring weights calibration sliders, and UI-based AI provider selection. (Phase 4 & Phase 12)
+- [x] **Containerization & Orchestration**: Production `Dockerfile`, `docker-compose.yml` with Host Ollama GPU/NPU support, and Kubernetes manifests (`k8s/`). (Phase 6)
+- [x] **Automation Scripts**: Cross-platform automation scripts (`manage.ps1` and `manage.sh`) for building images, running containers, model preloading, and Kubernetes deployments. (Phase 6)
 
-### Active
+### Validated
 
-- [ ] **Multi-Source Scraping**: Integration of `python-jobspy` for LinkedIn and Google Jobs, plus a dedicated Playwright scraper for StepStone.
-- [ ] **Background Scheduling & Worker**: Periodic cron/interval background job extraction with rate-limiting, deduplication, and manual trigger support.
-- [ ] **Profile & CV Ingestion**: Extract skills, experiences, and qualifications from uploaded PDF CVs and LinkedIn profile exports/URLs.
-- [ ] **Pluggable AI & Vector RAG Engine**: Dual AI provider backend supporting **Local Ollama** (`llama3.1`, `mistral`, `qwen2.5`) OR **Cloud/Custom APIs** (OpenAI, Anthropic, Groq, OpenAI-compatible endpoints) + ChromaDB vector embeddings for semantic fit scoring (0–100%) and gap analysis.
-- [ ] **Modern Web Dashboard**: Pure Python web frontend (FastAPI + HTMX + Tailwind CSS) featuring Kanban board, table view, multi-criteria sorting/filtering toolbar (Fit Score, salary, remote/workplace, source, dates, matched skills), split-pane job inspector, and comprehensive settings panel.
-- [ ] **Comprehensive Status Tracking**: Lifecycle statuses: `seen`, `applied`, `not a good fit`, `rejected`, `1. interview`, `2. interview`, `3. interview`, `waiting for respond`.
-- [ ] **Feedback Loop & Continuous Learning**: User notes and status adjustments dynamically tune vector embeddings weights, prompt few-shots, and search query keywords.
-- [ ] **Configurable Search & AI Settings**: Custom search titles, target locations (Remote/Hybrid/Onsite), salary ranges, blacklist keywords, and UI-based AI provider selection (Ollama vs. API Key with connection testing).
-- [ ] **Containerization & Orchestration**: Production `Dockerfile` (with Playwright Chromium runtime), `docker-compose.yml` (Jobot + Ollama with persistent storage), and Kubernetes manifests (`k8s/` Deployments, Services, PVCs, Ingress).
-- [ ] **Automation Scripts**: Comprehensive shell & PowerShell scripts for building images, local execution, model preloading, and Kubernetes deployments.
+- [x] **Secure Phone Access via SSH Tunnel**: Jobot can be used from a phone or secondary device through a secure SSH tunnel while keeping the main machine as the application brain and avoiding public port exposure. The design is documented in the user guide and milestone planning. (Milestone 3)
 
 ### Out of Scope
 
@@ -36,8 +36,9 @@ Continuously discover high-relevance job opportunities across multiple platforms
 ## Context
 
 - Target user wants a streamlined, flexible personal job search copilot.
+- The app stays on the main workstation while a phone or companion device accesses it through a secure SSH tunnel, keeping local AI/DB services private and not public-facing.
 - Using `python-jobspy` dramatically reduces scraper maintenance for major platforms (LinkedIn, Google Jobs).
-- StepStone requires a dedicated Playwright crawler with anti-bot headers and European/German layout parsing.
+- StepStone uses a dedicated Playwright crawler with anti-bot headers and European layout parsing.
 - User can freely toggle between local Ollama (for offline privacy and 0 cost) and cloud APIs (for maximum reasoning performance on lower-spec hardware).
 
 ## Constraints
@@ -48,24 +49,29 @@ Continuously discover high-relevance job opportunities across multiple platforms
 - **Execution & Development Environment**: Container-first workflow: Development runs inside Docker containers with source bind-mounts and hot-reloading (`docker-compose.dev.yml`). Production runs via `docker-compose.yml` or Kubernetes.
 - **Tech Stack**: Pure Python backend and web UI (FastAPI + Jinja2 + HTMX + Tailwind CSS) + SQLite / ChromaDB.
 - **AI Backend**: Pluggable provider interface supporting Local Ollama (`ollama-python`) and OpenAI-compatible client (`openai` / `httpx`) with runtime settings persisted in SQLite and fully editable in the UI.
-- **Scraping Engine**: Python (`python-jobspy` + `playwright-python` for StepStone and authenticated LinkedIn login).
+- **Scraping Engine**: Python (`python-jobspy` + `playwright-python` for StepStone and authenticated LinkedIn profile ingestion).
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Python-First Architecture | Unified ecosystem across scrapers, AI pipeline, database models, and web UI for maintainability and seamless execution | — Pending |
-| Docker-First Development | Ensures consistent Playwright browser environments, system libraries, and local Ollama networking across all host operating systems | — Pending |
-| Persistent DB-backed AI Settings | AI parameters (provider, models, API keys, endpoints) are initialized on startup and editable in the UI without server restarts | — Pending |
-| Pluggable AI Provider (Ollama vs API Key) | Users on high-end PCs run Ollama for 100% offline privacy; users on laptops/lower-spec hardware can plug in OpenAI/Groq API keys | — Pending |
-| `python-jobspy` for LinkedIn & Google Jobs | Battle-tested open-source scraper library handling rate limits, headers, and DOM changes | — Pending |
-| Dedicated Playwright for StepStone | Clean headless browser crawler tailored to StepStone's layout and pagination | — Pending |
-| Pure Python Web Stack (FastAPI + HTMX) | Snappy reactive UI without Node.js/build overhead, unified Python backend | — Pending |
-| ChromaDB Embedded Vector Store | Zero external daemon needed, in-process SQLite storage for CV and feedback vectors | — Pending |
-| Status & Notes-driven Vector Tuning | Uses user feedback comments and application outcomes to refine semantic scoring | — Pending |
-| Containerization & K8s Manifests | Enables single-command local spin-up via Docker Compose and scalable private cluster deployment via Kubernetes | — Pending |
-| Cross-Platform Automation Scripts | Provides seamless build, run, model pull, and deployment automation for Linux/macOS (bash) and Windows (PowerShell) | — Pending |
-| Interactive Developer Decision-Making | All architecture, dependency, and plan changes prompt the developer with structured options, pros/cons, and decision context before acting | — Pending |
+| Python-First Architecture | Unified ecosystem across scrapers, AI pipeline, database models, and web UI for maintainability and seamless execution | ✓ Validated |
+| Docker-First Development | Ensures consistent Playwright browser environments, system libraries, and local Ollama networking across all host operating systems | ✓ Validated |
+| Persistent DB-backed AI Settings | AI parameters (provider, models, API keys, endpoints) are initialized on startup and editable in the UI without server restarts | ✓ Validated |
+| Pluggable AI Provider (Ollama vs API Key) | Users on high-end PCs run Ollama for 100% offline privacy; users on laptops/lower-spec hardware can plug in OpenAI/Groq API keys | ✓ Validated |
+| `python-jobspy` for LinkedIn & Google Jobs | Battle-tested open-source scraper library handling rate limits, headers, and DOM changes | ✓ Validated |
+| Dedicated Playwright for StepStone | Clean headless browser crawler tailored to StepStone's layout and pagination | ✓ Validated |
+| Pure Python Web Stack (FastAPI + HTMX) | Snappy reactive UI without Node.js/build overhead, unified Python backend | ✓ Validated |
+| ChromaDB Embedded Vector Store | Zero external daemon needed, in-process SQLite storage for CV and feedback vectors | ✓ Validated |
+| Status & Notes-driven Vector Tuning | Uses user feedback comments and application outcomes to refine semantic scoring | ✓ Validated |
+| Containerization & K8s Manifests | Enables single-command local spin-up via Docker Compose and scalable private cluster deployment via Kubernetes | ✓ Validated |
+| Cross-Platform Automation Scripts | Provides seamless build, run, model pull, and deployment automation for Linux/macOS (bash) and Windows (PowerShell) | ✓ Validated |
+| Persistent SQLite Task Queue (`ScrapeTask`) | Atomic task claiming worker loop ensures resilient, non-blocking background job discovery and batch scoring | ✓ Validated (Phase 10) |
+| Multi-Stage LinkedIn Profile Ingestion | Combines `linkedin-api` Voyager REST API with Joeyism `linkedin_scraper` and Playwright for rich profile extraction | ✓ Validated (Phase 11) |
+| Joined CV + LinkedIn Data Model | Merges skills, education, and career experience from both CV uploads and LinkedIn syncs into a single combined profile | ✓ Validated (Phase 11 & 12) |
+| Normalized Skill-Based Scoring & Calibration Sliders | Normalizes sub-factor scores to 0-100% with instant disqualification for 0 skill match, plus fine-tuning UI sliders in Settings | ✓ Validated (Phase 12) |
+| Open-Source Community Best Practices | Added MIT License, Code of Conduct, Security Policy, Issue Templates, and PR checklist | ✓ Validated (Phase 12) |
+| Secure SSH Tunnel Access for Mobile Devices | Lets the app stay on the main workstation while a phone connects through a secure SSH tunnel, avoiding public exposure and preserving the private local AI stack | Validated (Milestone 3) |
 
 
 ## Evolution
@@ -86,4 +92,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-07 after leveraging JobSpy & StepStone Playwright architecture*
+*Last updated: 2026-09-08 after completing Milestone 2 (Queue Engine, Real-Data Enforcement, Parameter Calibration, and Open Source Suite)*

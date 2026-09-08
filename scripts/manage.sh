@@ -51,16 +51,19 @@ case "$CMD" in
     docker-build)
         echo "==> Building production Docker image (jobot:latest)..."
         docker build -t jobot:latest .
+        docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
         echo "==> Docker image built successfully!"
         ;;
     docker-up)
         echo "==> Building & starting Docker Compose stack..."
         docker compose -f docker-compose.yml up --build -d
+        docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
         echo "==> Jobot stack running at http://localhost:8000"
         ;;
     docker-up-host-ollama)
         echo "==> Building & starting Jobot connected to Host Ollama..."
         docker compose -f docker-compose.host-ollama.yml up --build -d
+        docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
         echo "==> Jobot stack running at http://localhost:8000 (connected to host Ollama)"
         ;;
     docker-down)

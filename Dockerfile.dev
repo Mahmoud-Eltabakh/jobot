@@ -1,6 +1,12 @@
 # Development Dockerfile with Playwright browser dependencies and hot reloading
 FROM python:3.11-slim
 
+LABEL org.opencontainers.image.title="Jobot-Dev" \
+      org.opencontainers.image.description="Intelligent AI Job Search Agent - Development" \
+      org.opencontainers.image.version="0.1.0-dev" \
+      org.opencontainers.image.vendor="Jobot" \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 # Install system packages required by Playwright Chromium and SQLite

@@ -2,10 +2,10 @@
 
 ## Project Reference
 
-See: [.planning/PROJECT.md](.planning/PROJECT.md) (initialized 2026-09-07)
+See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 
 **Core value:** Continuously discover high-relevance job opportunities across multiple platforms and rank them accurately against a candidate's CV using local Ollama AI and adaptive Vector RAG learning, managed through a clean and responsive web dashboard.
-**Current focus:** Phase 4 executed (Complete). Ready to execute Phase 5 (`/gsd-execute-phase 5`).
+**Current focus:** All phases in Milestone 1 and Milestone 2 are 100% Complete. Project is ready and maintained for open-source community adoption.
 
 ## Phase Status
 
@@ -20,21 +20,27 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (initialized 2026-09-07)
 - [x] **Phase 8: AI Cover Letter Generator & Resume Tailoring Engine** — Complete (4 plans: 08-01, 08-02, 08-03, 08-04)
 - [x] **Phase 9: AI-Assisted Intelligent Web Scraping Engine** — Complete (4 plans: 09-01, 09-02, 09-03, 09-04)
 
-### Milestone 2: Production Real-Data Queue Engine & Live Integrations
-- [ ] **Phase 10: Persistent SQLite Task Queue & Continuous Scraping Worker** — Ready to plan & execute (4 plans: 10-01, 10-02, 10-03, 10-04)
-- [ ] **Phase 11: Authenticated LinkedIn Login & Session Manager** — Planned (4 plans: 11-01, 11-02, 11-03, 11-04)
-- [ ] **Phase 12: Strict Real-Data Enforcement & Actionable Error UI** — Planned (3 plans: 12-01, 12-02, 12-03)
+### Milestone 2: Production Real-Data Queue Engine & Live Integrations (Complete)
+- [x] **Phase 10: Persistent SQLite Task Queue & Continuous Scraping Worker** — Complete (4 plans: 10-01, 10-02, 10-03, 10-04)
+- [x] **Phase 11: Authenticated LinkedIn Session Manager & Profile Analysis** — Complete (4 plans: 11-01, 11-02, 11-03, 11-04)
+- [x] **Phase 12: Strict Real-Data Enforcement, Scoring Calibration & Actionable Error UI** — Complete (3 plans: 12-01, 12-02, 12-03)
+
+### Milestone 3: Secure Remote Access & Phone SSH Tunnel (Complete)
+- [x] **Phase 13: Secure Phone Access Through an SSH Tunnel** — Complete (3 plans: 13-01, 13-02, 13-03)
 
 ## Progress Log
 
 - **2026-09-07**: Initialized Jobot project specification, requirements, domain research, roadmap, and configuration.
-- **2026-09-07**: Planned Phase 1 (Core Foundation & Data Architecture) with 3 executable plans (01-01 Scaffolding & Config, 01-02 SQLModel SQLite DB, 01-03 ChromaDB Vector Store).
 - **2026-09-07**: Executed Phase 1: Built FastAPI app with `/health` endpoint, SQLModel SQLite schema with WAL concurrency & default settings seeding, embedded ChromaDB vector store, development Docker Compose stack, and 100% passing test suite.
-- **2026-09-07**: Planned Phase 2: CV Parsing & Pluggable AI Matching Engine with 02-RESEARCH.md, 02-AI-SPEC.md, 02-VALIDATION.md, and 3 executable plans (02-01 CV Parser & Extractor, 02-02 ChromaDB Vector RAG, 02-03 Pluggable AI Client & Evaluator).
 - **2026-09-07**: Executed Phase 2: Built `CVParser` (`pdfplumber` + `pypdf`), `ExtractedProfile` structured extractor, `BaseAIClient` multi-provider client (`OllamaAIClient`, `OpenAICompatibleClient`), `JobEvaluator` with prompt injection defense, and `ProfileEmbedder` ChromaDB vector RAG pipeline with 24 passing tests.
-- **2026-09-07**: Planned Phase 3: Multi-Source Scraping Engine, Filter Pipeline & Background Worker with 03-RESEARCH.md, 03-VALIDATION.md, and 5 executable plans (03-01 Base & Dedup, 03-02 JobSpy LinkedIn/Google, 03-03 StepStone Playwright, 03-04 Pre-Filter Pipeline, 03-05 APScheduler & REST API).
 - **2026-09-07**: Executed Phase 3: Built `ScrapedJob` contract, SHA-256 deduplication pipeline, `JobSpyScraper` (LinkedIn/Google), `StepStoneScraper` (Playwright), `JobFilterPipeline` (Title/Keyword blacklist screening), and `APScheduler` background worker with `POST /api/scrapers/run` endpoint (35 passing tests).
-- **2026-09-07**: Planned Phase 4: Modern Web Dashboard & Job Tracker UI with 04-RESEARCH.md, 04-VALIDATION.md, and 5 executable plans (04-01 Base Layout & Web Router, 04-02 Kanban Board & Table Views, 04-03 Multi-Criteria Filter Bar, 04-04 Job Inspector & Notes Editor, 04-05 Settings Panel & AI Configurator).
 - **2026-09-07**: Executed Phase 4: Built pure Python web dashboard with 8-stage Kanban board, sortable Data Table view, live multi-criteria filter toolbar, slide-over Job Inspector drawer with notes editor, and Settings panel with AI Configurator (Ollama vs. Cloud API key test button) and blacklist manager (44 passing tests).
-- **2026-09-07**: Planned Phase 5: Feedback Loop & Search Refinement Engine with 05-RESEARCH.md, 05-VALIDATION.md, and 3 executable plans (05-01 Feedback Vectors & Re-weighting, 05-02 Blacklist Suggester & Query Optimizer, 05-03 E2E Integration Suite).
-- **2026-09-07**: Planned Phase 6: Containerization, Kubernetes & DevOps Automation with 06-RESEARCH.md, 06-VALIDATION.md, and 4 executable plans (06-01 Production Dockerfile, 06-02 Production Docker Compose, 06-03 Kubernetes Manifests, 06-04 Automation Scripts).
+- **2026-09-07**: Executed Phase 5: Implemented feedback vector learning, adaptive blacklist suggester, search query optimizer, and E2E integration test suite.
+- **2026-09-08**: Executed Phase 6: Authored production `Dockerfile`, `docker-compose.yml` with Host Ollama GPU/NPU support, Kubernetes manifests (`k8s/`), and PowerShell/Bash automation scripts (`manage.ps1` / `manage.sh`).
+- **2026-09-08**: Executed Phase 7: Built Profile tab UI, `ExtractedProfile` ChromaDB vector sync, `LinkedInProfileAnalyzer` with Playwright and `li_at` cookie injection, and `AIQueryStrategist` for dynamic profile skill search query generation.
+- **2026-09-08**: Executed Phase 8: Built `ApplicationGenerator` for 1-click tailored cover letters (4 custom tones: Professional, Direct, Enthusiastic, Conversational) and ATS-optimized accomplishment bullet points with Job Inspector UI tabs.
+- **2026-09-08**: Executed Phase 9: Built `AIScraperExtractor` for dynamic DOM extraction, AI Query Strategist Boolean search formulation, and spam/promotional ad filtering.
+- **2026-09-08**: Executed Phase 10: Built `ScrapeTask` SQLModel queue schema, `TaskQueue` atomic claiming manager, `QueueWorker` continuous async background loop, and real-time HTMX **AI Queue View & Control Center** tab with pause/resume, retry, and clear capabilities.
+- **2026-09-08**: Executed Phase 11: Integrated Tom Quirk's `linkedin-api` (Voyager REST API) and Joeyism's `linkedin_scraper` Playwright engine with `li_at` cookie injection for rich candidate profile sync.
+- **2026-09-08**: Executed Phase 12: Enforced zero synthetic mock fallbacks, implemented normalized profile-skill-based fit scoring with 0% disqualification for 0 skill match, added UI sliders for parameter scoring weight calibration, auto-purging of non-matching jobs, joined CV + LinkedIn profile merging, and complete open-source documentation suite (MIT License, Code of Conduct, Security Policy, PR/Issue templates). All 85 unit tests passing.
+- **2026-09-08**: Executed Phase 13: Documented the secure phone-access architecture through an SSH tunnel, added the cross-platform mobile access flow, and finalized the host-only security checklist and validation steps. The design keeps Jobot, Ollama, SQLite, and the scraping stack on the main machine while treating the phone as a secure client endpoint.

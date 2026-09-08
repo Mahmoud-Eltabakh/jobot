@@ -181,6 +181,57 @@ def test_web_profile_view_and_form_update():
         assert "Senior Cloud Engineer" in post_resp.text
 
 
+def test_web_profile_update_cv_data_and_rescore():
+    """Test editing extracted CV data/history and calling rescore & filter."""
+    with TestClient(app) as client:
+        form_data = {
+            "full_name": "Charlie Programmer",
+            "headline": "Fullstack Developer",
+            "bio": "Experienced developer.",
+            "experience_years": "4.0",
+            "target_titles": "Fullstack Engineer",
+            "target_locations": "Remote",
+            "target_salary_min": "70000",
+            "work_preference": "remote_first",
+            "skills": "Python, TypeScript, React",
+            "active_skills": ["Python", "React"],
+            "experience_history_text": '[{"title": "Lead Dev", "company": "Acme", "duration": "2020-2024", "description": "Built web apps"}]',
+            "education_text": '[{"school": "MIT", "degree": "B.Sc.", "field_of_study": "CS"}]',
+            "cv_raw_text": "Charlie Programmer - Experienced Fullstack Developer with Python and React skills.",
+        }
+
+        post_resp = client.post("/web/profile/update", data=form_data)
+        assert post_resp.status_code == 200
+        assert "Charlie Programmer" in post_resp.text
+        assert "Parsed Resume / CV Data & Career History" in post_resp.text
+
+        # Test Rescore & Filter button route
+        rescore_resp = client.post("/web/profile/rescore-filter")
+        assert rescore_resp.status_code == 200
+        assert "Rescored and Filtered" in rescore_resp.text
+
+
+def test_scrape_modal_and_run_routes():
+    """Test GET /web/components/scrape-modal and POST /web/scrape/run popup endpoints."""
+    with TestClient(app) as client:
+        # GET modal
+        resp_modal = client.get("/web/components/scrape-modal")
+        assert resp_modal.status_code == 200
+        assert "Start Job Scraping Discovery" in resp_modal.text
+        assert "Start Fresh" in resp_modal.text
+        assert "Search More Jobs" in resp_modal.text
+
+        # POST run fresh mode
+        resp_fresh = client.post("/web/scrape/run?mode=fresh")
+        assert resp_fresh.status_code == 200
+        assert "Fresh discovery queued" in resp_fresh.text
+
+        # POST run incremental mode
+        resp_inc = client.post("/web/scrape/run?mode=incremental")
+        assert resp_inc.status_code == 200
+        assert "Incremental search discovery queued" in resp_inc.text
+
+
 @pytest.mark.asyncio
 async def test_ai_bio_generation_function():
     """Verify generate_candidate_bio creates an executive summary using AI/fallback."""
@@ -222,3 +273,22 @@ def test_web_profile_generate_bio_route():
         assert "bio-textarea-container" in resp.text
         assert "Generate Bio with AI" in resp.text
         assert "Executive summary generated automatically with AI" in resp.text
+
+
+def test_linkedin_api_public_id_extraction():
+    """Verify extract_public_id_from_url parses usernames correctly from LinkedIn URLs."""
+    from app.ai.linkedin_analyzer import extract_public_id_from_url
+
+    assert extract_public_id_from_url("https://www.linkedin.com/in/john-doe-123/") == "john-doe-123"
+    assert extract_public_id_from_url("https://de.linkedin.com/in/melta/?sub=1") == "melta"
+    assert extract_public_id_from_url("john-doe") == "john-doe"
+
+
+@pytest.mark.asyncio
+async def test_fetch_profile_via_joeyism_scraper_empty_cookie():
+    """Verify fetch_profile_via_joeyism_scraper handles empty inputs safely without throwing."""
+    res = await LinkedInProfileAnalyzer.fetch_profile_via_joeyism_scraper(
+        linkedin_url="https://www.linkedin.com/in/test-invalid",
+        session_cookie="",
+    )
+    assert res is None

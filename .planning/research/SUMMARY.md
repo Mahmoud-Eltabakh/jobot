@@ -51,3 +51,9 @@ Building an automated personal job search pipeline with local AI and a modern Py
 - **Anti-bot Blocks on StepStone**: Use Playwright stealth plugins, randomized user agents, and respectful crawl delays (2-5s).
 - **Ollama Availability**: Graceful fallback UI when Ollama is offline or model is not pulled yet, with a status indicator in the dashboard.
 - **PDF Extraction**: Use `pypdf` / `pdfplumber` for robust multi-column CV parsing and text extraction.
+
+### 5. Secure Remote Access for Phone Use
+- **Tunnel Topology**: Keep the Jobot app, SQLite DB, Ollama runtime, and scraper workers on the main machine. Expose only an SSH tunnel or reverse tunnel to a phone or secondary device, rather than publishing the local web service on the public internet.
+- **Recommended Pattern**: Use SSH with key-based authentication and a remote forwarding / reverse tunnel configuration on a host that can be reached from the phone; bind the browser to the tunnel endpoint instead of opening a random inbound port on the workstation.
+- **Security Baseline**: Prefer key-based auth, restrict SSH to the minimum required commands, use local-only binding where possible, and avoid opening wildcards or public ports in the primary environment.
+- **Operational Constraint**: The goal is mobile convenience without moving the actual application brain away from the main host. The phone acts as a client viewer, not a second server runtime.

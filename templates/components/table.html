@@ -38,13 +38,13 @@
                         <!-- Status Badge -->
                         <td class="py-3 px-4 whitespace-nowrap">
                             <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border
-                                {% if job.status == 'seen' %}border-indigo-800 text-indigo-400 bg-indigo-950/40
+                                {% if job.status in ('new', 'seen') %}border-indigo-800 text-indigo-400 bg-indigo-950/40
                                 {% elif job.status == 'applied' %}border-blue-800 text-blue-400 bg-blue-950/40
                                 {% elif job.status == 'waiting for respond' %}border-cyan-800 text-cyan-400 bg-cyan-950/40
                                 {% elif job.status in ('1. interview', '2. interview', '3. interview') %}border-amber-800 text-amber-400 bg-amber-950/40
                                 {% elif job.status == 'rejected' %}border-rose-800 text-rose-400 bg-rose-950/40
                                 {% else %}border-slate-800 text-slate-400 bg-slate-900/40{% endif %}">
-                                {{ job.status }}
+                                {{ 'NEW' if job.status == 'new' else job.status }}
                             </span>
                         </td>
 

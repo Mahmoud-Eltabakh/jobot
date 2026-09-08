@@ -1,0 +1,64 @@
+<!-- Scrape Discovery Mode Modal Popup -->
+<div id="modal-container" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-white">Start Job Scraping Discovery</h3>
+                    <p class="text-xs text-slate-400">Choose how Jobot should run this scraping cycle:</p>
+                </div>
+            </div>
+            <button type="button" onclick="document.getElementById('modal-container').remove()" class="text-slate-500 hover:text-slate-300 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <!-- Options Choice Cards -->
+        <div class="space-y-3 text-xs">
+            <!-- Option 1: Fresh Start (Delete 'New Matches' & Re-Scrape) -->
+            <button hx-post="/web/scrape/run?mode=fresh" 
+                    hx-target="#modal-container" 
+                    hx-swap="outerHTML"
+                    class="w-full text-left p-4 rounded-xl border border-rose-900/60 bg-rose-950/20 hover:bg-rose-950/50 hover:border-rose-700 transition space-y-1 group active:scale-98">
+                <div class="flex items-center justify-between">
+                    <div class="font-bold text-rose-300 flex items-center space-x-1.5">
+                        <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span>Start Fresh (Clear NEW & Scrape)</span>
+                    </div>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-mono">Reset NEW</span>
+                </div>
+                <p class="text-[11px] text-slate-400 group-hover:text-slate-300 transition leading-relaxed">
+                    Deletes all current jobs in the <strong>NEW</strong> stage and starts scraping discovery from the beginning.
+                </p>
+            </button>
+
+            <!-- Option 2: Search More (Incremental Search) -->
+            <button hx-post="/web/scrape/run?mode=incremental" 
+                    hx-target="#modal-container" 
+                    hx-swap="outerHTML"
+                    class="w-full text-left p-4 rounded-xl border border-indigo-900/60 bg-indigo-950/20 hover:bg-indigo-950/50 hover:border-indigo-700 transition space-y-1 group active:scale-98">
+                <div class="flex items-center justify-between">
+                    <div class="font-bold text-indigo-300 flex items-center space-x-1.5">
+                        <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                        <span>Search More Jobs (Keep Existing Matches)</span>
+                    </div>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-950 border border-indigo-800 text-indigo-300 font-mono">Incremental</span>
+                </div>
+                <p class="text-[11px] text-slate-400 group-hover:text-slate-300 transition leading-relaxed">
+                    Keeps all your existing job cards and enqueues search tasks to find additional new opportunities.
+                </p>
+            </button>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end border-t border-slate-800 pt-3">
+            <button type="button" onclick="document.getElementById('modal-container').remove()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition">
+                Cancel
+            </button>
+        </div>
+    </div>
+</div>

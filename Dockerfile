@@ -41,6 +41,12 @@ RUN pip install --user --no-warn-script-location -r requirements.txt
 # Final Runtime Stage: Secure Non-Root Container
 FROM python:3.11-slim AS runner
 
+LABEL org.opencontainers.image.title="Jobot" \
+      org.opencontainers.image.description="Intelligent AI Job Search & Tracking Agent" \
+      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.vendor="Jobot" \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

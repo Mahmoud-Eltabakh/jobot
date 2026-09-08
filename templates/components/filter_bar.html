@@ -57,7 +57,7 @@
             <span id="score-val" class="font-mono text-emerald-400 font-semibold w-8">0%</span>
         </div>
 
-        <!-- Quick Exclusion Toggles -->
+        <!-- Quick Exclusion Toggles & Rescore Action -->
         <div class="flex items-center space-x-3 text-xs text-slate-400">
             <label class="flex items-center space-x-1.5 cursor-pointer">
                 <input type="checkbox" name="hide_rejected" value="true" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
@@ -67,6 +67,16 @@
                 <input type="checkbox" name="hide_not_fit" value="true" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
                 <span>Hide Not a Fit</span>
             </label>
+
+            <!-- Rescore & Filter Button -->
+            <button type="button" 
+                    hx-post="/web/profile/rescore-filter" 
+                    hx-target="#view-container"
+                    title="Re-evaluate all jobs against updated profile and purge non-matches"
+                    class="px-3 py-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 font-semibold text-xs transition flex items-center space-x-1.5 shadow-sm active:scale-95">
+                <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>Rescore & Filter</span>
+            </button>
         </div>
     </div>
 </form>

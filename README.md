@@ -26,6 +26,7 @@
   - [Option A: Docker Compose with Host Ollama (Recommended)](#option-a-docker-compose-with-host-ollama-recommended)
   - [Option B: Full Docker Stack](#option-b-full-docker-stack)
   - [Option C: Local Python Setup](#option-c-local-python-setup)
+  - [📱 Secure Phone Access via SSH Tunnel](#-secure-phone-access-via-ssh-tunnel)
 - [🖼️ Dashboard & Interface Tour](#%EF%B8%8F-dashboard--interface-tour)
 - [⚙️ Environment Variables Reference](#%EF%B8%8F-environment-variables-reference)
 - [🏗️ Architecture Overview](#%EF%B8%8F-architecture-overview)
@@ -106,6 +107,40 @@ cp .env.example .env
 # 5. Start web server
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+### 📱 Secure Phone Access via SSH Tunnel
+
+If you want to use Jobot from a phone or secondary device while keeping the app, database, queue, and local Ollama stack on your main workstation, use an SSH tunnel instead of exposing Jobot to the public internet.
+
+This is the recommended mobile access pattern for privacy-first use:
+
+- Jobot continues to run on the main machine
+- SQLite, ChromaDB, AI models, and scrapers stay local
+- The phone connects through an encrypted SSH tunnel
+- No public port is opened on the host or router
+
+#### SSH tunnel example
+
+```powershell
+# On the main host machine (Windows PowerShell)
+ssh -N -L 8000:127.0.0.1:8000 your-user@your-server-or-host
+```
+
+```bash
+# On Linux/macOS
+ssh -N -L 8000:127.0.0.1:8000 your-user@your-server-or-host
+```
+
+Then open the UI in the browser on the phone using the host's reachable endpoint, or use a trusted local/private network path that allows the tunnel to work. The app remains the same local Jobot instance; the phone is only a secure client endpoint.
+
+#### Security checklist
+
+- Use SSH key-based authentication instead of passwords
+- Keep host key verification enabled
+- Restrict the tunnel to the exact Jobot port only
+- Avoid opening inbound ports on your firewall or router
+- Use a private trusted network where possible
+- Stop the tunnel when you are done and verify the app is still local-only
 
 ---
 

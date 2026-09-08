@@ -3,7 +3,7 @@
 import json
 import logging
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select, desc, asc
@@ -54,6 +54,8 @@ def apply_job_filters(
         statement = statement.where(
             (Job.title.ilike(term)) | (Job.company.ilike(term)) | (Job.description.ilike(term))
         )
+
+    statement = statement.where(Job.fit_score.is_not(None))
 
     if min_score is not None and min_score > 0:
         statement = statement.where(Job.fit_score >= min_score)
@@ -300,7 +302,8 @@ async def get_kanban_view(
     jobs = session.exec(stmt).all()
 
     stages = [
-        ("seen", "New Matches", "border-indigo-500/40 text-indigo-400 bg-indigo-500/10"),
+        ("new", "NEW", "border-indigo-500/40 text-indigo-400 bg-indigo-500/10"),
+        ("seen", "Seen", "border-indigo-500/40 text-indigo-400 bg-indigo-500/10"),
         ("applied", "Applied", "border-blue-500/40 text-blue-400 bg-blue-500/10"),
         ("waiting for respond", "Waiting", "border-cyan-500/40 text-cyan-400 bg-cyan-500/10"),
         ("1. interview", "1st Interview", "border-amber-500/40 text-amber-400 bg-amber-500/10"),
@@ -627,6 +630,7 @@ async def get_profile_view(
     request: Request,
     session: Session = Depends(get_session),
     error_message: Optional[str] = None,
+    toast_message: Optional[str] = None,
 ) -> HTMLResponse:
     """Render Candidate Profile editing view."""
     user_profile = session.exec(select(UserProfile)).first()
@@ -638,6 +642,12 @@ async def get_profile_view(
     if not active_skills and all_skills:
         active_skills = all_skills
 
+    exp_history = json.loads(user_profile.experience_history_json or "[]") if user_profile else []
+    education = json.loads(user_profile.education_json or "[]") if user_profile else []
+    exp_history_str = json.dumps(exp_history, indent=2) if exp_history else ""
+    education_str = json.dumps(education, indent=2) if education else ""
+    cv_raw_text = (user_profile.cv_raw_text or "") if user_profile else ""
+
     return templates.TemplateResponse(
         request=request,
         name="components/profile.html",
@@ -648,7 +658,11 @@ async def get_profile_view(
             "skills_str": ", ".join(all_skills),
             "all_skills": all_skills,
             "active_skills": active_skills,
+            "experience_history_str": exp_history_str,
+            "education_str": education_str,
+            "cv_raw_text": cv_raw_text,
             "error_message": error_message,
+            "toast_message": toast_message,
         },
     )
 
@@ -666,6 +680,9 @@ async def update_profile_form(
     work_preference: str = Form("remote_first"),
     skills: str = Form(""),
     active_skills: list[str] = Form(default=[]),
+    experience_history_text: Optional[str] = Form(None),
+    education_text: Optional[str] = Form(None),
+    cv_raw_text: Optional[str] = Form(None),
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
     """Update user profile from web form and return refreshed profile view."""
@@ -689,6 +706,26 @@ async def update_profile_form(
     user_profile.work_preference = work_preference
     user_profile.skills_json = json.dumps(skills_list)
     user_profile.active_search_skills_json = json.dumps(active_skills_list)
+
+    if experience_history_text is not None:
+        try:
+            txt = experience_history_text.strip()
+            exp_data = json.loads(txt) if txt.startswith("[") else ([{"description": line.strip()} for line in txt.split("\n") if line.strip()] if txt else [])
+            user_profile.experience_history_json = json.dumps(exp_data)
+        except Exception:
+            pass
+
+    if education_text is not None:
+        try:
+            txt = education_text.strip()
+            edu_data = json.loads(txt) if txt.startswith("[") else ([{"description": line.strip()} for line in txt.split("\n") if line.strip()] if txt else [])
+            user_profile.education_json = json.dumps(edu_data)
+        except Exception:
+            pass
+
+    if cv_raw_text is not None and cv_raw_text.strip():
+        user_profile.cv_raw_text = cv_raw_text.strip()
+
     user_profile.updated_at = utc_now()
 
     session.add(user_profile)
@@ -724,6 +761,75 @@ async def update_profile_form(
         logger.warning("Failed purging non-matching jobs on profile save: %s", purge_err)
 
     return await get_profile_view(request=request, session=session)
+
+
+@router.post("/web/profile/rescore-filter", response_class=HTMLResponse)
+async def rescore_and_filter_view(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    """Re-evaluate and rescore all stored jobs against candidate profile and purge non-matches."""
+    ai_client = get_ai_client()
+    count = await JobEvaluator.rescore_all_jobs(session=session, ai_client=ai_client)
+    logger.info("Rescored and filtered %d jobs from UI action", count)
+
+    return await get_profile_view(
+        request=request,
+        session=session,
+        toast_message=f"Rescored and Filtered {count} stored jobs successfully!",
+    )
+
+
+@router.get("/web/components/scrape-modal", response_class=HTMLResponse)
+async def get_scrape_modal_view(request: Request) -> HTMLResponse:
+    """Render popup modal asking whether to start fresh or search more."""
+    return templates.TemplateResponse(
+        request=request,
+        name="components/scrape_modal.html",
+        context={},
+    )
+
+
+@router.post("/web/scrape/run", response_class=HTMLResponse)
+async def run_scrape_modal_action(
+    request: Request,
+    mode: str = Query("incremental"),
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    """Execute scrape discovery with option to clear new matches or search more."""
+    from app.queue.task_queue import TaskQueue
+
+    cleared_count = 0
+    if mode == "fresh":
+        seen_jobs = session.exec(select(Job).where(Job.status == JobStatus.SEEN.value)).all()
+        for j in seen_jobs:
+            session.delete(j)
+        cleared_count = len(seen_jobs)
+        session.commit()
+        logger.info("Cleared %d existing 'seen' (New Matches) jobs for fresh discovery", cleared_count)
+
+    task = TaskQueue.enqueue(
+        session=session,
+        task_type="full_discovery",
+        payload={"max_queries": 5, "mode": mode},
+    )
+
+    msg = f"Fresh discovery queued! Cleared {cleared_count} old matches." if mode == "fresh" else "Incremental search discovery queued!"
+
+    html = f"""
+    <div id="modal-container" hx-swap-oob="delete"></div>
+    <div id="toast-notification" class="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500 text-emerald-300 px-4 py-3 rounded-xl shadow-2xl font-semibold text-xs flex items-center space-x-2 animate-bounce">
+        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        <span>{msg}</span>
+    </div>
+    <script>
+        setTimeout(() => {{
+            let toast = document.getElementById('toast-notification');
+            if (toast) toast.remove();
+        }}, 4000);
+    </script>
+    """
+    return HTMLResponse(content=html, headers={"HX-Trigger": "refreshView"})
 
 
 @router.post("/web/profile/generate-bio", response_class=HTMLResponse)

@@ -12,6 +12,14 @@
     </div>
     {% endif %}
 
+    {% if toast_message %}
+    <!-- Success Toast Notification -->
+    <div id="toast-notification" class="p-4 rounded-xl bg-indigo-950/90 border border-indigo-700 text-xs text-indigo-200 flex items-center space-x-3 shadow-xl">
+        <svg class="w-5 h-5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        <div class="font-semibold">{{ toast_message }}</div>
+    </div>
+    {% endif %}
+
     <!-- Profile Header Banner -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div class="flex items-center space-x-4">
@@ -89,8 +97,9 @@
                 </div>
             </div>
 
-            <div class="text-[10px] text-slate-500 leading-relaxed bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <strong>How to obtain your <code class="text-sky-300">li_at</code> cookie:</strong> Open LinkedIn in Chrome/Edge, press <kbd class="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">F12</kbd> (DevTools) &rarr; Go to <strong>Application</strong> tab &rarr; <strong>Cookies</strong> &rarr; <code class="text-sky-300">https://www.linkedin.com</code> &rarr; Copy the value of the <strong>li_at</strong> row.
+            <div class="text-[10px] text-slate-500 leading-relaxed bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                <div><strong>How to obtain your <code class="text-sky-300">li_at</code> cookie:</strong> Open LinkedIn in Chrome/Edge, press <kbd class="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">F12</kbd> (DevTools) &rarr; Go to <strong>Application</strong> tab &rarr; <strong>Cookies</strong> &rarr; <code class="text-sky-300">https://www.linkedin.com</code> &rarr; Copy the value of the <strong>li_at</strong> row.</div>
+                <div class="text-amber-400/90 pt-0.5"><strong>💡 Why your main browser tab logged out:</strong> LinkedIn automatically revokes session cookies if it detects concurrent requests from a different browser fingerprint (like Playwright/Python) using the same <code class="text-amber-300 font-mono">li_at</code> token. Once synced, you can simply log back in to LinkedIn in your browser; Jobot saves your extracted skills & profile in SQLite!</div>
             </div>
 
             <div class="flex items-center justify-between pt-1">
@@ -214,15 +223,59 @@
             </div>
         </div>
 
-        <!-- Save Profile Action -->
-        <div class="flex items-center justify-between pt-2">
+        <!-- Parsed Resume / CV Data & History Card -->
+        <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-200">Parsed Resume / CV Data & Career History</h3>
+                    <p class="text-[11px] text-slate-500">View and edit structured career experiences, education, and raw resume text extracted from your CV or LinkedIn.</p>
+                </div>
+            </div>
+
+            <!-- Career Experience History -->
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Career Experience History <span class="text-slate-500">(JSON format: title, company, duration, description)</span></label>
+                <textarea name="experience_history_text" rows="4" 
+                          placeholder='[{"title": "Senior Engineer", "company": "TechCorp", "duration": "2021 - Present", "description": "Built backend APIs"}]'
+                          class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono text-xs focus:border-indigo-500 transition">{{ experience_history_str }}</textarea>
+            </div>
+
+            <!-- Education History -->
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Education History <span class="text-slate-500">(JSON format: school, degree, field_of_study)</span></label>
+                <textarea name="education_text" rows="3" 
+                          placeholder='[{"school": "University", "degree": "B.Sc.", "field_of_study": "Computer Science"}]'
+                          class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono text-xs focus:border-indigo-500 transition">{{ education_str }}</textarea>
+            </div>
+
+            <!-- Raw Extracted Resume Text -->
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Parsed Raw CV / Resume Plain Text</label>
+                <textarea name="cv_raw_text" rows="4" 
+                          placeholder="Raw plain text extracted from uploaded resume file..."
+                          class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono text-xs focus:border-indigo-500 transition">{{ cv_raw_text }}</textarea>
+            </div>
+        </div>
+
+        <!-- Save Profile Action Row -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
             <div class="text-[11px] text-slate-500">
                 Saving synchronizes your profile to SQLite and re-computes semantic RAG vectors in ChromaDB.
             </div>
-            <button type="submit" class="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 active:scale-95 transition flex items-center space-x-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                <span>Save Profile & Sync Vectors</span>
-            </button>
+            <div class="flex items-center space-x-3">
+                <button type="button" 
+                        hx-post="/web/profile/rescore-filter" 
+                        hx-target="#view-container"
+                        class="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 active:scale-95 transition flex items-center space-x-1.5">
+                    <svg class="w-4 h-4 text-indigo-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    <span>Rescore & Filter All Jobs</span>
+                </button>
+
+                <button type="submit" class="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 active:scale-95 transition flex items-center space-x-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    <span>Save Profile & Sync Vectors</span>
+                </button>
+            </div>
         </div>
     </form>
 </div>

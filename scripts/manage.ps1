@@ -58,16 +58,20 @@ switch ($Command) {
     "docker-build" {
         Write-Host "[+] Building production Docker image jobot:latest..." -ForegroundColor Cyan
         docker build -t jobot:latest .
+        Write-Host "[+] Cleaning up untagged dangling images..." -ForegroundColor Cyan
+        docker image prune -f --filter "dangling=true" | Out-Null
         Write-Host "[✓] Docker build successful!" -ForegroundColor Green
     }
     "docker-up" {
         Write-Host "[+] Building & starting Docker Compose stack in detached mode..." -ForegroundColor Cyan
         docker compose -f docker-compose.yml up --build -d
+        docker image prune -f --filter "dangling=true" | Out-Null
         Write-Host "[✓] Jobot stack running! Access web dashboard at http://localhost:8000" -ForegroundColor Green
     }
     "docker-up-host-ollama" {
         Write-Host "[+] Building & starting Jobot connected to Host Ollama (http://host.docker.internal:11434)..." -ForegroundColor Cyan
         docker compose -f docker-compose.host-ollama.yml up --build -d
+        docker image prune -f --filter "dangling=true" | Out-Null
         Write-Host "[✓] Jobot running with Host Ollama! Access web dashboard at http://localhost:8000" -ForegroundColor Green
     }
     "docker-down" {

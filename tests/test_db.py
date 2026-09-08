@@ -82,6 +82,29 @@ def test_job_crud_and_status_history() -> None:
         assert histories[0].notes == "Applied via website with custom CV"
 
 
+def test_job_default_status_is_new() -> None:
+    """Jobs should start in the NEW state and only be listed after scoring."""
+    dedup = compute_hash("Nova Labs", "Full Stack Engineer", "Berlin")
+
+    with Session(engine) as session:
+        job = Job(
+            source="linkedin",
+            title="Full Stack Engineer",
+            company="Nova Labs",
+            location="Berlin",
+            is_remote=True,
+            url="https://linkedin.com/jobs/view/99999",
+            description="Full stack Python and frontend role.",
+            dedup_hash=dedup,
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+
+        assert job.status == "new"
+        assert job.fit_score is None
+
+
 def test_user_profile_crud() -> None:
     """Test user profile creation and JSON list fields."""
     with Session(engine) as session:

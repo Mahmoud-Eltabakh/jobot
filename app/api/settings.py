@@ -226,7 +226,7 @@ async def upload_cv_document(
 
     ai_client = get_ai_client()
     extracted_profile = await extract_profile_from_text(raw_text, ai_client)
-    user_profile = save_profile_to_db(extracted_profile, raw_text, session)
+    user_profile = save_profile_to_db(extracted_profile, raw_text, session, source_type="cv")
 
     # Embed and sync into ChromaDB
     vector_store = get_vector_store()

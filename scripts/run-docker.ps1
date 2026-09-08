@@ -17,4 +17,5 @@ if ($Mode -eq "dev") {
 }
 
 docker compose -f $composeFile up --build -d
+docker image prune -f --filter "dangling=true" | Out-Null
 Write-Host "Jobot is running at http://localhost:8000 (Mode: $Mode)"

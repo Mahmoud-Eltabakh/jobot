@@ -100,23 +100,34 @@ Write a concise 2-3 sentence Executive Summary / Professional Bio."""
 
     titles_str = f" specializing in {', '.join(titles[:2])}" if titles else ""
     skills_str = f" Core competencies include {', '.join(skills[:5])}." if skills else ""
-    return f"{full_name} is a results-driven professional with {exp_years} years of industry experience{titles_str}.{skills_part if 'skills_part' in locals() else skills_str} Proven track record in delivering scalable solutions and driving technical innovation."
+    return f"{full_name} is a results-driven professional with {exp_years} years of industry experience{titles_str}.{skills_str} Proven track record in delivering scalable solutions and driving technical innovation."
 
 
 def extract_dynamic_skills_from_text(raw_text: str) -> list[str]:
     """Dynamically extract candidate skills from text without static hardcoded lists."""
     skills: list[str] = []
-    # 1. Match explicit Skills / Competencies section
-    section_match = re.search(r"(?:skills|competencies|technologies|tools)\s*:\s*([^\n]+)", raw_text, re.IGNORECASE)
+    # 1. Match explicit Skills / Competencies / Kenntnisse section
+    section_match = re.search(r"(?:skills|competencies|technologies|tools|kenntnisse|fertigkeiten)\s*:\s*([^\n]+)", raw_text, re.IGNORECASE)
     if section_match:
         extracted = [s.strip() for s in re.split(r"[,;|•]", section_match.group(1)) if s.strip()]
         for s in extracted:
-            if s and s not in skills:
+            if s and len(s) > 1 and s not in skills:
                 skills.append(s)
 
-    # 2. Extract technical terms / capitalized tokens from text
+    # 2. Extract technical terms / capitalized tokens from text, ignoring UI boilerplate
     tech_patterns = re.findall(r"\b[A-Z][a-zA-Z0-9+#.-]{1,19}\b", raw_text)
-    ignored = {"summary", "experience", "education", "resume", "curriculum", "vitae", "contact", "email", "phone", "profile", "project", "projects", "work", "history", "candidate", "about"}
+    ignored = {
+        "summary", "experience", "education", "resume", "curriculum", "vitae", "contact",
+        "email", "phone", "profile", "project", "projects", "work", "history", "candidate",
+        "about", "benachrichtigungen", "weiter", "hauptinhalt", "start", "ihr", "netzwerk",
+        "jobs", "nachrichten", "mitteilungen", "sie", "produkte", "linkedin", "learning",
+        "profil", "abschnitt", "offen", "notifications", "next", "main", "home", "network",
+        "messaging", "me", "products", "settings", "search", "privacy", "terms", "help",
+        "signout", "signin", "skipping", "skip", "agree", "cookie", "language", "languages",
+        "german", "english", "location", "locations", "present", "month", "months", "year",
+        "years", "he", "she", "his", "her", "von", "bis", "der", "die", "das", "und", "mit",
+        "für", "fürs", "aus", "auf", "ein", "eine", "einer", "eines", "dem", "den"
+    }
     for token in tech_patterns:
         if len(token) > 1 and token not in skills and token.lower() not in ignored:
             skills.append(token)
@@ -208,10 +219,13 @@ def save_profile_to_db(
     profile: ExtractedProfile,
     raw_text: str,
     session: Session,
+    source_type: str = "cv",
 ) -> UserProfile:
-    """Persist or update primary UserProfile in SQLite database."""
+    """Persist or update primary UserProfile in SQLite database, joining CV and LinkedIn data."""
     user_profile = session.exec(select(UserProfile)).first()
-    active_skills = profile.active_search_skills if profile.active_search_skills else profile.skills
+    
+    new_skills = list(dict.fromkeys(profile.skills))
+    new_active_skills = profile.active_search_skills if profile.active_search_skills else new_skills
     
     if not user_profile:
         user_profile = UserProfile(
@@ -223,42 +237,136 @@ def save_profile_to_db(
             target_locations_json=json.dumps(profile.target_locations),
             target_salary_min=profile.target_salary_min,
             work_preference=profile.work_preference,
-            skills_json=json.dumps(profile.skills),
-            active_search_skills_json=json.dumps(active_skills),
+            skills_json=json.dumps(new_skills),
+            active_search_skills_json=json.dumps(new_active_skills),
             experience_history_json=json.dumps(profile.experience_history),
             education_json=json.dumps(profile.education),
-            cv_raw_text=raw_text,
+            cv_raw_text=raw_text if source_type == "cv" else None,
+            linkedin_raw_text=raw_text if source_type == "linkedin" else None,
             linkedin_url=profile.linkedin_url,
             updated_at=utc_now(),
         )
         session.add(user_profile)
     else:
-        user_profile.full_name = profile.full_name
+        # 1. Full name & headline
+        if profile.full_name and (not user_profile.full_name or user_profile.full_name == "Candidate"):
+            user_profile.full_name = profile.full_name
+        elif profile.full_name:
+            user_profile.full_name = profile.full_name
+
         if profile.headline:
             user_profile.headline = profile.headline
-        user_profile.bio = profile.summary or user_profile.bio
-        user_profile.experience_years = profile.experience_years or user_profile.experience_years
-        user_profile.target_titles_json = json.dumps(profile.target_titles)
-        user_profile.target_locations_json = json.dumps(profile.target_locations)
-        user_profile.target_salary_min = profile.target_salary_min
-        user_profile.work_preference = profile.work_preference or user_profile.work_preference
-        user_profile.skills_json = json.dumps(profile.skills)
-        if profile.active_search_skills:
-            user_profile.active_search_skills_json = json.dumps(profile.active_search_skills)
-        elif not user_profile.active_search_skills_json or user_profile.active_search_skills_json == "[]":
-            user_profile.active_search_skills_json = json.dumps(active_skills)
-        if profile.experience_history:
-            user_profile.experience_history_json = json.dumps(profile.experience_history)
-        if profile.education:
-            user_profile.education_json = json.dumps(profile.education)
-        if raw_text:
+
+        # 2. Executive Bio / Summary
+        if profile.summary and profile.summary.strip():
+            if not user_profile.bio or len(profile.summary) > len(user_profile.bio):
+                user_profile.bio = profile.summary
+
+        # 3. Experience Years (Take maximum or non-zero)
+        if profile.experience_years and profile.experience_years > user_profile.experience_years:
+            user_profile.experience_years = profile.experience_years
+
+        # 4. Target Titles - Merged & Deduplicated
+        existing_titles = []
+        if user_profile.target_titles_json:
+            try:
+                existing_titles = json.loads(user_profile.target_titles_json)
+            except Exception:
+                pass
+        merged_titles = list(dict.fromkeys(existing_titles + [t for t in profile.target_titles if t]))
+        user_profile.target_titles_json = json.dumps(merged_titles)
+
+        # 5. Target Locations - Merged & Deduplicated
+        existing_locs = []
+        if user_profile.target_locations_json:
+            try:
+                existing_locs = json.loads(user_profile.target_locations_json)
+            except Exception:
+                pass
+        merged_locs = list(dict.fromkeys(existing_locs + [l for l in profile.target_locations if l]))
+        user_profile.target_locations_json = json.dumps(merged_locs)
+
+        # 6. Target Salary & Work Preference
+        if profile.target_salary_min:
+            user_profile.target_salary_min = profile.target_salary_min
+        if profile.work_preference and profile.work_preference != "remote_first":
+            user_profile.work_preference = profile.work_preference
+
+        # 7. Skills & Active Scraper Search Skills - Joined & Deduplicated Matrix
+        existing_skills = []
+        if user_profile.skills_json:
+            try:
+                existing_skills = json.loads(user_profile.skills_json)
+            except Exception:
+                pass
+
+        existing_active = []
+        if user_profile.active_search_skills_json:
+            try:
+                existing_active = json.loads(user_profile.active_search_skills_json)
+            except Exception:
+                pass
+
+        joined_skills = list(dict.fromkeys(existing_skills + new_skills))
+        # Dynamically update Scraper Search Matrix with all newly joined skills!
+        joined_active = list(dict.fromkeys(existing_active + new_active_skills + new_skills))
+
+        user_profile.skills_json = json.dumps(joined_skills)
+        user_profile.active_search_skills_json = json.dumps(joined_active)
+
+        # 8. Experience History - Joined & Deduplicated by title+company
+        existing_history = []
+        if user_profile.experience_history_json:
+            try:
+                existing_history = json.loads(user_profile.experience_history_json)
+            except Exception:
+                pass
+
+        merged_history = existing_history.copy()
+        seen_keys = {(h.get("title", "").lower(), h.get("company", "").lower()) for h in existing_history if isinstance(h, dict)}
+
+        for new_exp in profile.experience_history:
+            if isinstance(new_exp, dict):
+                key = (new_exp.get("title", "").lower(), new_exp.get("company", "").lower())
+                if key not in seen_keys and (key[0] or key[1]):
+                    seen_keys.add(key)
+                    merged_history.append(new_exp)
+
+        user_profile.experience_history_json = json.dumps(merged_history)
+
+        # 9. Education - Joined & Deduplicated by school+degree
+        existing_edu = []
+        if user_profile.education_json:
+            try:
+                existing_edu = json.loads(user_profile.education_json)
+            except Exception:
+                pass
+
+        merged_edu = existing_edu.copy()
+        seen_edu = {(e.get("school", "").lower(), e.get("degree", "").lower()) for e in existing_edu if isinstance(e, dict)}
+
+        for new_edu in profile.education:
+            if isinstance(new_edu, dict):
+                key = (new_edu.get("school", "").lower(), new_edu.get("degree", "").lower())
+                if key not in seen_edu and (key[0] or key[1]):
+                    seen_edu.add(key)
+                    merged_edu.append(new_edu)
+
+        user_profile.education_json = json.dumps(merged_edu)
+
+        # 10. Store separate raw texts without overriding
+        if source_type == "cv" and raw_text:
             user_profile.cv_raw_text = raw_text
+        elif source_type == "linkedin" and raw_text:
+            user_profile.linkedin_raw_text = raw_text
+
         if profile.linkedin_url:
             user_profile.linkedin_url = profile.linkedin_url
+
         user_profile.updated_at = utc_now()
         session.add(user_profile)
 
     session.commit()
     session.refresh(user_profile)
-    logger.info("Updated UserProfile id=%d for '%s'", user_profile.id, user_profile.full_name)
+    logger.info("Updated & Joined UserProfile id=%d for '%s' (Source: %s)", user_profile.id, user_profile.full_name, source_type)
     return user_profile

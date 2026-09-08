@@ -14,3 +14,4 @@ if ($Mode -eq "dev") {
 } else {
     docker build -t jobot:latest .
 }
+docker image prune -f --filter "dangling=true" | Out-Null

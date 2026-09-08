@@ -77,4 +77,15 @@
 ### 12. Strict Real-Data Enforcement & Actionable Error Handling
 - **REQ-DAT-01**: Zero synthetic mock fallbacks in runtime/production code: scrapers, LinkedIn analyzer, and AI evaluators strictly execute live network and LLM requests.
 - **REQ-DAT-02**: Actionable UI error notifications, alert banners, and status badges displayed when Ollama is offline, network requests are blocked, or credentials require renewal.
+- **REQ-UI-06**: **Active AI Queue Jobs & Control Center Tab**: Real-time web UI tab with HTMX live polling (`3s`) displaying background task status (`scrape_query`, `evaluate_job`, `full_discovery`), KPI metrics, task worker pause/resume toggle, ad-hoc discovery triggering, and per-task retry/delete actions.
+- **REQ-UI-07**: **Scrape Discovery Popup Modal**: Interactive modal on "Scrape Now" asking candidate whether to start fresh (clear old `seen` matches) or perform incremental search discovery.
+- **REQ-PROFILE-01**: **Unified CV & LinkedIn Joined Profile**: Candidate profile updates from CV upload and LinkedIn profile ingestion merge skills, career experience, education history, and raw text without overwriting existing candidate data.
+- **REQ-SCALES-01**: **Scoring Engine Calibration & Fine-Tuning Scales**: Interactive UI sliders in Settings to adjust parameter scales (Skills, Title, Location, Experience, Vector RAG) with a 1-click action button to rescore all stored jobs.
 - **REQ-DAT-03**: Comprehensive error diagnostics and failure history logged to SQLite for debugging.
+
+### 13. Secure Phone Access via SSH Tunnel
+- **REQ-REMOTE-01**: Provide a secure access path for a phone or secondary device to use Jobot from the main workstation without exposing the app directly to the public internet.
+- **REQ-REMOTE-02**: Use an SSH tunnel or reverse tunnel pattern that keeps the Jobot stack on the main machine and opens only an authenticated, encrypted tunnel for remote traffic.
+- **REQ-REMOTE-03**: Keep the host machine as the application brain: AI services, database, scrapers, and job queue continue to run locally while the device connects via the tunnel.
+- **REQ-REMOTE-04**: Document the setup flow clearly for macOS/Linux/Windows users, including key generation, tunnel creation, browser URL, and safe shutdown steps.
+- **REQ-REMOTE-05**: Add a lightweight security checklist covering SSH keys, restricted forwarding, local host binding, and no-open-port policy for mobile access.

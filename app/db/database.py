@@ -84,6 +84,8 @@ def migrate_sqlite_columns() -> None:
                 "active_search_skills_json": "TEXT DEFAULT '[]'",
                 "experience_history_json": "TEXT DEFAULT '[]'",
                 "education_json": "TEXT DEFAULT '[]'",
+                "cv_raw_text": "TEXT",
+                "linkedin_raw_text": "TEXT",
                 "linkedin_session_cookie": "TEXT",
                 "linkedin_data_json": "TEXT",
                 "linkedin_access_token": "TEXT",

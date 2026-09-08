@@ -8,3 +8,4 @@ if [[ "$MODE" == "dev" ]]; then
 else
   docker build -t jobot:latest .
 fi
+docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
