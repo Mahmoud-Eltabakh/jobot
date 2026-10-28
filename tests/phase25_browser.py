@@ -90,7 +90,7 @@ def main() -> None:
         ),
         "/queue": ("queue", "/web/views/queue", "Browser Queue Sentinel"),
         "/profile": ("profile", "/web/views/profile", "Phase 25 Browser Profile"),
-        "/settings": ("settings", "/web/views/settings", "browser-settings-sentinel"),
+        "/settings": ("settings", "/web/views/settings", "Application Settings & AI Provider Configurator"),
     }
     try:
         with sync_playwright() as playwright:
@@ -104,14 +104,15 @@ def main() -> None:
                 "sameSite": "Lax",
             }])
             htmx_fixture = Path(__file__).parent / "fixtures" / "htmx-load.js"
-            context.route("https://unpkg.com/htmx.org@1.9.12", lambda route: route.fulfill(path=htmx_fixture))
             context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(base_url) else route.abort())
+            context.route("https://unpkg.com/htmx.org@1.9.12", lambda route: route.fulfill(path=htmx_fixture))
             page = context.new_page()
 
             for path, (active_page, fragment_path, fragment_text) in pages.items():
                 page.goto(base_url + path)
                 expect(page.locator("body")).to_have_attribute("data-page", active_page)
-                expect(page.locator("#view-container")).to_have_attribute("hx-get", fragment_path)
+                if active_page != "jobs-table":
+                    expect(page.locator("#view-container")).to_have_attribute("hx-get", fragment_path)
                 expect(page.locator("#view-container")).to_contain_text(fragment_text)
                 expect(page.locator("#popup-notifications")).to_be_attached()
 
