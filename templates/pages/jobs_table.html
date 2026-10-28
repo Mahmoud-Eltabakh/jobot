@@ -2,8 +2,8 @@
 
 {% block content %}
 <div class="flex flex-col space-y-4 flex-1 min-w-0">
-    <div id="filter-bar-container" hx-get="/web/components/filter-bar?view=table" hx-trigger="load"></div>
-    <div id="view-container" class="flex-1 flex flex-col min-h-0" hx-get="/web/views/table" hx-trigger="load">
+    <div id="filter-bar-container" hx-get="/web/components/filter-bar?view=table{% if table_query %}&amp;{{ table_query }}{% endif %}" hx-trigger="load"></div>
+    <div id="view-container" class="flex-1 flex flex-col min-h-0" hx-get="/web/views/table{% if table_query %}?{{ table_query }}{% endif %}" hx-trigger="load">
         <div class="flex items-center justify-center p-12 text-slate-500 text-sm">Loading jobs table...</div>
     </div>
 </div>

@@ -5,6 +5,7 @@ from datetime import timezone
 from html import escape
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -345,13 +346,33 @@ async def jobs_board_page(
 async def jobs_table_page(
     request: Request,
     session: Session = Depends(get_session),
+    q: str | None = None,
+    min_score: int | None = None,
+    work_model: str | None = None,
+    min_salary: float | None = None,
+    source: str | None = None,
+    hide_rejected: bool = False,
+    hide_not_fit: bool = False,
+    sort_by: str = "fit_score",
+    sort_order: str = "desc",
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render the refresh-safe sortable jobs table from protected fragments."""
+    supported_parameters = {
+        "q", "min_score", "work_model", "min_salary", "source", "hide_rejected",
+        "hide_not_fit", "sort_by", "sort_order",
+    }
+    table_query = urlencode([
+        (key, value) for key, value in request.query_params.multi_items()
+        if key in supported_parameters
+    ])
     return templates.TemplateResponse(
         request=request,
         name="pages/jobs_table.html",
-        context=page_context(session, current_user, "jobs-table"),
+        context={
+            **page_context(session, current_user, "jobs-table"),
+            "table_query": table_query,
+        },
     )
 
 
@@ -401,6 +422,13 @@ async def settings_page(
 async def get_filter_bar(
     request: Request,
     view: str = "kanban",
+    q: str | None = None,
+    min_score: int | None = None,
+    work_model: str | None = None,
+    min_salary: float | None = None,
+    source: str | None = None,
+    hide_rejected: bool = False,
+    hide_not_fit: bool = False,
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render the filter toolbar partial."""
@@ -411,7 +439,16 @@ async def get_filter_bar(
     return templates.TemplateResponse(
         request=request,
         name="components/filter_bar.html",
-        context={"view_endpoint": view_endpoint},
+        context={
+            "view_endpoint": view_endpoint,
+            "q": q or "",
+            "min_score": min_score or 0,
+            "work_model": work_model or "",
+            "min_salary": min_salary or "",
+            "source": source or "all",
+            "hide_rejected": hide_rejected,
+            "hide_not_fit": hide_not_fit,
+        },
     )
 
 

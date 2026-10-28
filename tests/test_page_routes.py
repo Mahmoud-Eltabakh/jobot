@@ -2,6 +2,10 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
+
+from app.db.database import engine
+from app.db.models import Job, JobStatus
 
 
 @pytest.mark.parametrize(
@@ -57,6 +61,43 @@ def test_table_filter_bar_preserves_the_table_fragment_destination(
 
     assert response.status_code == 200
     assert 'hx-get="/web/views/table"' in response.text
+
+
+def test_table_page_preserves_filter_and_sort_state_on_direct_navigation(
+    authenticated_client: TestClient,
+    authenticated_user: dict,
+) -> None:
+    """A bookmarked table URL initializes the matching toolbar and fragment state."""
+    with Session(engine) as session:
+        session.add(Job(
+            user_id=authenticated_user["id"],
+            source="linkedin",
+            title="Python State Sentinel",
+            company="Stateful Jobs",
+            location="Berlin",
+            url="https://example.test/jobs/table-state",
+            status=JobStatus.NEW.value,
+            fit_score=81,
+            dedup_hash="phase25-table-state",
+        ))
+        session.commit()
+
+    response = authenticated_client.get(
+        "/jobs/table?q=Python+State+Sentinel&sort_by=created_at&sort_order=asc"
+    )
+
+    assert response.status_code == 200
+    assert 'hx-get="/web/views/table?q=Python+State+Sentinel&amp;sort_by=created_at&amp;sort_order=asc"' in response.text
+    assert 'hx-get="/web/components/filter-bar?view=table&amp;q=Python+State+Sentinel&amp;sort_by=created_at&amp;sort_order=asc"' in response.text
+
+    fragment = authenticated_client.get(
+        "/web/views/table?q=Python+State+Sentinel&sort_by=created_at&sort_order=asc"
+    )
+    filter_bar = authenticated_client.get(
+        "/web/components/filter-bar?view=table&q=Python+State+Sentinel"
+    )
+    assert "Python State Sentinel" in fragment.text
+    assert 'value="Python State Sentinel"' in filter_bar.text
 
 
 def test_legacy_filter_bar_defaults_to_the_kanban_fragment(
