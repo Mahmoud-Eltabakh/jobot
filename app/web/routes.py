@@ -327,13 +327,92 @@ async def dashboard_page(
     )
 
 
+@router.get("/jobs/board", response_class=HTMLResponse)
+async def jobs_board_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render the refresh-safe Kanban jobs page from protected fragments."""
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/jobs_board.html",
+        context=page_context(session, current_user, "jobs-board"),
+    )
+
+
+@router.get("/jobs/table", response_class=HTMLResponse)
+async def jobs_table_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render the refresh-safe sortable jobs table from protected fragments."""
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/jobs_table.html",
+        context=page_context(session, current_user, "jobs-table"),
+    )
+
+
+@router.get("/queue", response_class=HTMLResponse)
+async def queue_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render the refresh-safe queue page from its existing protected fragment."""
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/queue.html",
+        context=page_context(session, current_user, "queue"),
+    )
+
+
+@router.get("/profile", response_class=HTMLResponse)
+async def profile_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render the refresh-safe profile page from its existing protected fragment."""
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/profile.html",
+        context=page_context(session, current_user, "profile"),
+    )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render the refresh-safe settings page from its existing protected fragment."""
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/settings.html",
+        context=page_context(session, current_user, "settings"),
+    )
+
+
 @router.get("/web/components/filter-bar", response_class=HTMLResponse)
 async def get_filter_bar(
     request: Request,
+    view: str = "kanban",
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Render the filter toolbar partial."""
-    return templates.TemplateResponse(request=request, name="components/filter_bar.html", context={})
+    view_endpoint = {
+        "kanban": "/web/views/kanban",
+        "table": "/web/views/table",
+    }.get(view, "/web/views/kanban")
+    return templates.TemplateResponse(
+        request=request,
+        name="components/filter_bar.html",
+        context={"view_endpoint": view_endpoint},
+    )
 
 
 @router.get("/web/components/queue-status", response_class=HTMLResponse)

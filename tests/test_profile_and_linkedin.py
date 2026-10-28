@@ -165,7 +165,7 @@ def test_web_profile_view_and_form_update(authenticated_client: TestClient):
     resp = authenticated_client.get("/web/views/profile")
     assert resp.status_code == 200
     assert "Candidate Profile" in resp.text or "General Information" in resp.text
-    assert "LinkedIn Profile Ingestion" in resp.text
+    assert "Import LinkedIn Profile PDF" in resp.text
 
     form_data = {
         "full_name": "Alice Wonderland",

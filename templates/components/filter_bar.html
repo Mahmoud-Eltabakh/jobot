@@ -1,6 +1,6 @@
 <!-- Multi-Criteria Sorting & Filtering Bar Component -->
 <form id="filter-form" class="bg-slate-900 border border-slate-800 p-3.5 rounded-xl shadow-md space-y-3"
-      hx-get="/web/views/kanban" hx-target="#view-container" hx-trigger="change, keyup delay:350ms from:#search-input">
+    hx-get="{{ view_endpoint | default('/web/views/kanban') }}" hx-target="#view-container" hx-trigger="change, keyup delay:350ms from:#search-input">
     
     <div class="flex flex-wrap items-center justify-between gap-3">
         <!-- Live Search Input -->

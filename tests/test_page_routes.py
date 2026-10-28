@@ -8,6 +8,11 @@ from fastapi.testclient import TestClient
     ("path", "active_page", "fragment_path"),
     [
         ("/dashboard", "dashboard", "/web/views/kanban"),
+        ("/jobs/board", "jobs-board", "/web/views/kanban"),
+        ("/jobs/table", "jobs-table", "/web/views/table"),
+        ("/queue", "queue", "/web/views/queue"),
+        ("/profile", "profile", "/web/views/profile"),
+        ("/settings", "settings", "/web/views/settings"),
     ],
 )
 def test_authenticated_workspace_pages_render_full_shell(
@@ -32,7 +37,7 @@ def test_authenticated_workspace_pages_render_full_shell(
 
 @pytest.mark.parametrize(
     "path",
-    ["/dashboard"],
+    ["/dashboard", "/jobs/board", "/jobs/table", "/queue", "/profile", "/settings"],
 )
 def test_anonymous_workspace_pages_follow_authentication_policy(
     client: TestClient,
@@ -42,6 +47,26 @@ def test_anonymous_workspace_pages_follow_authentication_policy(
     response = client.get(path, follow_redirects=False)
 
     assert response.status_code == 401
+
+
+def test_table_filter_bar_preserves_the_table_fragment_destination(
+    authenticated_client: TestClient,
+) -> None:
+    """Table filtering remains within the sortable table rather than switching views."""
+    response = authenticated_client.get("/web/components/filter-bar?view=table")
+
+    assert response.status_code == 200
+    assert 'hx-get="/web/views/table"' in response.text
+
+
+def test_legacy_filter_bar_defaults_to_the_kanban_fragment(
+    authenticated_client: TestClient,
+) -> None:
+    """Existing consumers without a page selector retain their Kanban contract."""
+    response = authenticated_client.get("/web/components/filter-bar")
+
+    assert response.status_code == 200
+    assert 'hx-get="/web/views/kanban"' in response.text
 
 
 def test_root_redirects_authenticated_visitors_to_dashboard(

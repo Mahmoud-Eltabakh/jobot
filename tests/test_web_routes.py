@@ -18,13 +18,11 @@ def setup_db(monkeypatch) -> None:
 
 
 def test_index_page_rendering() -> None:
-    """Verify GET / returns 200 OK HTML containing Jobot shell."""
+    """Verify the compatibility root redirects anonymous visitors to auth."""
     with TestClient(app) as client:
-        resp = client.get("/")
-        assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-        assert "Jobot" in resp.text
-        assert "view-container" in resp.text
+        resp = client.get("/", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] in {"/register", "/login"}
 
 
 def test_provider_settings_are_explicit_and_secret_free(authenticated_client, monkeypatch):
