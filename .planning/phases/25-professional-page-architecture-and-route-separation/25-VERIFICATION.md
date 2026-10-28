@@ -1,6 +1,6 @@
 ---
 phase: 25-professional-page-architecture-and-route-separation
-verified: 2026-10-28T20:46:00Z
+verified: 2026-10-28T21:06:15Z
 status: passed
 score: 9/9 must-haves verified
 covered_files:
@@ -12,6 +12,7 @@ covered_files:
   - .planning/phases/25-professional-page-architecture-and-route-separation/25-03-SUMMARY.md
   - app/web/routes.py
   - templates/base.html
+  - templates/components/filter_bar.html
   - templates/components/profile.html
   - templates/pages/dashboard.html
   - templates/pages/jobs_board.html
@@ -19,19 +20,32 @@ covered_files:
   - templates/pages/profile.html
   - templates/pages/queue.html
   - templates/pages/settings.html
+  - tests/fixtures/htmx-load.js
   - tests/phase25_browser.py
+  - tests/test_htmx_views.py
   - tests/test_page_routes.py
-covered_digest: "v3:sha256:f395120b4979acbe372f8dd63ed371c1ef148d38a0835b32d6f368dfcf53df9e"
+  - tests/test_task_queue.py
+  - tests/test_web_routes.py
+covered_digest: "v3:sha256:62f71557a0a660283b81105730f602c3e4562172be24d428be95b5613b056852"
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  previous_status: passed
+  previous_score: 9/9
+  gaps_closed:
+    - "Browser acceptance test now loads a local HTMX fixture and asserts rendered fragment content."
+    - "Canonical jobs-table URLs now preserve supported filter and sort query state."
+    - "Two-account regressions cover page-fragment composition and cross-account inspector/queue-delete denial."
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 25: Professional Page Architecture and Route Separation Verification Report
 
 **Phase Goal:** Deliver direct, refresh-safe authenticated workspace pages while preserving the existing HTMX fragment, mutation, API, tenant-isolation, and popup contracts.
-**Verified:** 2026-10-28T20:46:00Z
+**Verified:** 2026-10-28T21:06:15Z
 **Status:** passed
-**Re-verification:** No - initial verification
+**Re-verification:** Yes - after review-fix commits through `dc4182b` and review documentation commit `cf6faed`
 
 ## Goal Achievement
 
@@ -42,12 +56,12 @@ overrides_applied: 0
 | 1 | An authenticated user can open and refresh `/dashboard` as a complete HTML page. | VERIFIED | `dashboard_page` requires `get_current_user`, renders `pages/dashboard.html`, and the focused route test asserts a full document, shared containers, active page, and Kanban composition point. |
 | 2 | The root URL retains anonymous compatibility behavior and redirects authenticated users to `/dashboard`. | VERIFIED | `index_page` keeps the first-user `/register` and later `/login` branches, with the authenticated branch returning a 303 to `/dashboard`; focused tests assert both covered branches. |
 | 3 | Workspace navigation uses canonical browser links and retains global popup, modal, inspector, and polling containers. | VERIFIED | `base.html` has ordinary anchors for all six canonical destinations, active-page state, queue and alert pollers, and the required popup, modal, and inspector containers. |
-| 4 | An authenticated user can directly open, refresh, and revisit `/jobs/board` without losing the existing filter or inspector model. | VERIFIED | Protected `jobs_board_page` renders the board shell; it composes the existing filter-bar and Kanban fragment endpoints. Existing fragment tests exercise the owner-scoped Kanban response. |
-| 5 | An authenticated user can directly open, refresh, and revisit `/jobs/table` with established filtering and sorting. | VERIFIED | Protected `jobs_table_page` renders the table shell with `view=table`; the filter-bar test verifies it targets `/web/views/table`, and the table fragment remains independently tested. |
+| 4 | An authenticated user can directly open, refresh, and revisit `/jobs/board` without losing the existing filter or inspector model. | VERIFIED | Protected `jobs_board_page` composes the filter-bar and owner-scoped Kanban fragments; the two-account regression proves each account sees only its own job sentinel and cannot inspect the other account's job. |
+| 5 | An authenticated user can directly open, refresh, and revisit `/jobs/table` with established filtering and sorting. | VERIFIED | Protected `jobs_table_page` forwards the supported query string into both initial fragment URLs. The focused route test proves a bookmarked filtered/sorted URL renders its matching table and populated filter control. |
 | 6 | Board and table fragment endpoints remain available as partial HTML for HTMX consumers. | VERIFIED | `/web/views/kanban` and `/web/views/table` remain protected fragment routes returning component templates, not a base document; focused HTMX tests passed. |
 | 7 | Authenticated users can directly open, refresh, and revisit `/queue`, `/profile`, and `/settings` as full pages. | VERIFIED | Each page route requires `get_current_user`, renders its focused shell, and is covered by parameterized authenticated and anonymous route tests plus the disposable browser runner. |
-| 8 | Queue controls, profile/settings mutations, manual LinkedIn PDF import, popup notifications, and existing fragment response contracts remain owner-scoped. | VERIFIED | Page shells only load existing protected fragments. Queue, job, profile, and settings views use current-user-scoped queries or ownership checks; the live PDF route clears the stored cookie and renders PDF-import feedback. Focused queue, profile, settings, auth, and web-route tests passed. |
-| 9 | Canonical navigation supports direct URLs, browser back/forward, and responsive widths without horizontal document overflow. | VERIFIED | `tests/phase25_browser.py` passed against disposable localhost state, directly visited all six routes, exercised dashboard-to-board history traversal, and asserted no document overflow at `375x812` and `1440x900`. |
+| 8 | Queue controls, profile/settings mutations, manual LinkedIn PDF import, popup notifications, and existing fragment response contracts remain owner-scoped. | VERIFIED | Page shells load existing protected fragments. The new two-account regression proves jobs, queue, profile, and settings do not leak sentinels, and cross-account inspector and queue-delete requests return `404`; focused fragment and queue suites pass. |
+| 9 | Canonical navigation supports direct URLs, browser back/forward, and responsive widths without horizontal document overflow. | VERIFIED | The disposable localhost browser run fulfills the pinned HTMX URL with a local fixture, waits for real fragment content on every canonical page, exercises a live table sort, verifies back/forward, and asserts no overflow at `375x812` and `1440x900`. |
 
 **Score:** 9/9 truths verified (0 present, behavior-unverified)
 
@@ -62,7 +76,7 @@ overrides_applied: 0
 | `templates/pages/queue.html` | Queue shell | VERIFIED | Base-derived shell loads `/web/views/queue`. |
 | `templates/pages/profile.html` | Profile shell | VERIFIED | Base-derived shell loads `/web/views/profile`. |
 | `templates/pages/settings.html` | Settings shell | VERIFIED | Base-derived shell loads `/web/views/settings`. |
-| `tests/phase25_browser.py` | Disposable browser verification | VERIFIED | Creates isolated SQLite state, blocks non-local requests, authenticates a disposable user, and validates route/history/viewport behavior. |
+| `tests/phase25_browser.py` | Disposable browser verification | VERIFIED | Creates isolated SQLite state, fulfills HTMX locally while blocking other external requests, authenticates a disposable user, and validates rendered fragments, sorting, route history, and viewport behavior. |
 
 ### Key Link Verification
 
@@ -89,23 +103,24 @@ overrides_applied: 0
 
 | Behavior | Command | Result | Status |
 | -------- | ------- | ------ | ------ |
-| Canonical routes, fragments, owner-scoped queue/profile/settings behavior | `.venv\\Scripts\\python.exe -m pytest tests/test_page_routes.py tests/test_htmx_views.py tests/test_task_queue.py tests/test_profile_and_linkedin.py tests/test_web_routes.py -q` | Exit 0 | PASS |
-| Direct pages, history navigation, and responsive overflow | `.venv\\Scripts\\python.exe tests/phase25_browser.py` | Exit 0 against disposable localhost-only state | PASS |
+| Canonical routes, direct table query state, and two-account isolation | `.venv\\Scripts\\python.exe -m pytest tests/test_page_routes.py -q` | 19 passed; 2 dependency deprecation warnings | PASS |
+| Fragment, queue, and retained web-route contracts | `.venv\\Scripts\\python.exe -m pytest tests/test_htmx_views.py tests/test_task_queue.py tests/test_web_routes.py -q` | 81 passed; 2 dependency deprecation warnings | PASS |
+| Direct pages, live HTMX fragments, history navigation, sorting, and responsive overflow | `.venv\\Scripts\\python.exe tests/phase25_browser.py` | Exit 0 against disposable localhost-only state with local HTMX fixture | PASS |
 
 ### Requirements Coverage
 
-Phase 25 declares `requirements: [TBD]` in all three plans, and the active roadmap lists no requirement IDs or success-criteria array for this phase. Requirement-ID coverage is therefore not applicable; all plan-defined acceptance truths were verified above.
+Phase 25 declares `requirements: [TBD]` in all three plans, and the active roadmap lists no requirement IDs or success-criteria array for this phase. Requirement-ID coverage is therefore not applicable; all nine merged plan/context acceptance truths were verified above.
 
 ### Decision Coverage
 
-Not evaluated: the decision-coverage gate found no trackable decisions in the phase context. The locked decisions were nevertheless checked directly through the route, shell, fragment, and browser evidence above.
+No trackable decisions in `25-CONTEXT.md` for the mechanical gate (`0/0`). The locked decisions were nevertheless checked directly through route, shell, fragment, tenant-isolation, and browser evidence above.
 
 ### Test Quality Audit
 
 | Test File | Linked Scope | Active | Skipped | Circular | Assertion Level | Verdict |
 | --------- | ------------ | ------ | ------- | -------- | --------------- | ------- |
-| `tests/test_page_routes.py` | Canonical page route and root compatibility contract | Yes | 0 | No | Value/behavioral | PASS |
-| `tests/phase25_browser.py` | Direct navigation, browser history, and responsive overflow | Yes | 0 | No | Behavioral | PASS |
+| `tests/test_page_routes.py` | Canonical routes, query-state persistence, and two-account composition | 19 | 0 | No | Value/behavioral | PASS |
+| `tests/phase25_browser.py` | Direct navigation, live HTMX fragments, sorting, history, and responsive overflow | 1 runner | 0 | No | Behavioral | PASS |
 
 No disabled requirement-linked tests or circular expected-value generation were found. Existing focused fragment and mutation tests provide the complementary endpoint and owner-isolation coverage.
 
@@ -115,9 +130,9 @@ No disabled requirement-linked tests or circular expected-value generation were 
 | ---- | ---- | ------- | -------- | ------ |
 | None | - | No debt markers, placeholder implementations, empty handlers, or hardcoded empty rendered data in Phase 25 artifacts | - | None |
 
-### Scope and Provenance Check
+### Review-Fix Evidence
 
-`templates/components/profile.html` contains uncommitted OIDC and cookie-sync markup inside a literal `{% if false %}` block. It is not reachable in the rendered profile workflow. The active UI presents the manual PDF import, and `import_linkedin_pdf` clears any stored session cookie. Git provenance shows these lines are not part of Phase 25 commit `31fc257`; legacy cookie-sync routes predate the phase and were not changed by it. This is not an active Phase 25 contract violation, but the dormant uncommitted code should remain outside Phase 25 review scope unless intentionally revived.
+`dc4182b` exists and changes `app/web/routes.py` plus `tests/test_page_routes.py`, adding the queue-task ownership guard and its cross-account denial check. `cf6faed` exists and records the three review findings and their fixes. The re-run focused tests and browser runner above independently validate those changes; no review finding remains open.
 
 ### Human Verification Required
 
@@ -129,5 +144,5 @@ None. The Phase 25 page architecture is implemented and connected without changi
 
 ---
 
-_Verified: 2026-10-28T20:46:00Z_
+_Verified: 2026-10-28T21:06:15Z_
 _Verifier: the agent (gsd-verifier)_
