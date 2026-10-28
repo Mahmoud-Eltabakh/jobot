@@ -1,40 +1,93 @@
+---
+gsd_state_version: "1.0"
+milestone: v7.0
+milestone_name: "Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)"
+status: unknown
+last_updated: "2026-10-28T05:19:03.308Z"
+state_head: 6aac1f519381973da0ed19b55bc2116a4a6d826e
+progress:
+  total_phases: 2
+  completed_phases: 1
+  total_plans: 10
+  completed_plans: 10
+  percent: 50
+current_phase: 18
+current_phase_name: Live Model Discovery for Cloud Providers & Ollama
+---
+
 # Project State
+
+milestone: v7.0
 
 ## Project Reference
 
 See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 
 **Core value:** Continuously discover high-relevance job opportunities across multiple platforms and rank them accurately against a candidate's CV using local Ollama AI and adaptive Vector RAG learning, managed through a clean and responsive web dashboard.
-**Current focus:** Milestone 5 is complete. Jobot now provides authenticated, encrypted, per-user operation across the dashboard, APIs, queue, profile, scoring, and settings layers.
+**Current focus:** Milestone 7 (Multi-Provider & Hybrid Local/Cloud AI Routing Engine), Phase 18 (Live Model Discovery for Cloud Providers & Ollama). Phase 17 passed fresh verification (31/31 truths), all three UAT checks, ASVS L1 security review, and fresh independent code review; its latest isolated suite passed 673 tests with 4 existing warnings on Python 3.14.7. Python 3.10 was not available for execution; see Phase 17 artifacts for remaining limits, including one P2 mobile rescore-layout advisory. Phase 18 is implemented but still requires its live-provider/Ollama and browser UAT. Phases 5-14 were gap-closed on 2026-10-28; live-service checks for 7, 9 and 11 remain human_needed. Milestone audit/completion/cleanup have not run.
 
 ## Phase Status
 
 ### Milestone 1: Core Foundation & Feature Suite (Complete)
+
 - [x] **Phase 1: Core Foundation & Data Architecture** — Complete (3 plans: 01-01, 01-02, 01-03)
 - [x] **Phase 2: CV Parsing & Pluggable AI Matching Engine (Ollama / Cloud API)** — Complete (3 plans: 02-01, 02-02, 02-03)
 - [x] **Phase 3: Multi-Source Scraping Engine, Filter Pipeline & Background Worker** — Complete (5 plans: 03-01, 03-02, 03-03, 03-04, 03-05)
 - [x] **Phase 4: Modern Web Dashboard & Job Tracker UI** — Complete (5 plans: 04-01, 04-02, 04-03, 04-04, 04-05)
-- [x] **Phase 5: Feedback Loop & Search Refinement Engine** — Complete (3 plans: 05-01, 05-02, 05-03)
-- [x] **Phase 6: Containerization, Kubernetes & DevOps Automation** — Complete (4 plans: 06-01, 06-02, 06-03, 06-04)
-- [x] **Phase 7: Profile Management, LinkedIn Profile Analysis & Skill-Driven Scraping** — Complete (5 plans: 07-01, 07-02, 07-03, 07-04, 07-05)
-- [x] **Phase 8: AI Cover Letter Generator & Resume Tailoring Engine** — Complete (4 plans: 08-01, 08-02, 08-03, 08-04)
-- [x] **Phase 9: AI-Assisted Intelligent Web Scraping Engine** — Complete (4 plans: 09-01, 09-02, 09-03, 09-04)
+- [x] **Phase 5: Feedback Loop & Search Refinement Engine** — Complete, verified (gaps closed 2026-10-28) (3 plans: 05-01, 05-02, 05-03)
+- [x] **Phase 6: Containerization, Kubernetes & DevOps Automation** — Complete; no verification report, not re-audited (4 plans: 06-01, 06-02, 06-03, 06-04)
+- [x] **Phase 7: Profile Management, LinkedIn Profile Analysis & Skill-Driven Scraping** — Complete (verified; human-needed browser/live LinkedIn check) (5 plans: 07-01, 07-02, 07-03, 07-04, 07-05)
+- [x] **Phase 8: AI Cover Letter Generator & Resume Tailoring Engine** — Complete; no verification report, not re-audited (4 plans: 08-01, 08-02, 08-03, 08-04)
+- [x] **Phase 9: AI-Assisted Intelligent Web Scraping Engine** — Complete (verified; human-needed live extraction check) (4 plans: 09-01, 09-02, 09-03, 09-04)
 
 ### Milestone 2: Production Real-Data Queue Engine & Live Integrations (Complete)
-- [x] **Phase 10: Persistent SQLite Task Queue & Continuous Scraping Worker** — Complete (4 plans: 10-01, 10-02, 10-03, 10-04)
-- [x] **Phase 11: Authenticated LinkedIn Session Manager & Profile Analysis** — Complete (4 plans: 11-01, 11-02, 11-03, 11-04)
-- [x] **Phase 12: Strict Real-Data Enforcement, Scoring Calibration & Actionable Error UI** — Complete (3 plans: 12-01, 12-02, 12-03)
+
+- [x] **Phase 10: Persistent SQLite Task Queue & Continuous Scraping Worker** — Complete, verified (gaps closed 2026-10-28) (4 plans: 10-01, 10-02, 10-03, 10-04)
+- [x] **Phase 11: Authenticated LinkedIn Session Manager & Profile Analysis** — Complete (verified; human-needed live LinkedIn check) (4 plans: 11-01, 11-02, 11-03, 11-04)
+- [x] **Phase 12: Strict Real-Data Enforcement, Scoring Calibration & Actionable Error UI** — Complete, verified (gaps closed 2026-10-28) (3 plans: 12-01, 12-02, 12-03)
 
 ### Milestone 3: Secure Remote Access & Phone SSH Tunnel (Complete)
-- [x] **Phase 13: Secure Phone Access Through an SSH Tunnel** — Complete (4 plans: 13-01, 13-02, 13-03, 13-04)
+
+- [x] **Phase 13: Secure Phone Access Through an SSH Tunnel** — Complete; no verification report, not re-audited (4 plans: 13-01, 13-02, 13-03, 13-04)
 
 ### Milestone 4: Experience, Education & Project Signal Scoring (Complete)
-- [x] **Phase 14: Experience, Education & Project Signal Scoring** — Complete (3 plans: 14-01, 14-02, 14-03)
+
+- [x] **Phase 14: Experience, Education & Project Signal Scoring** — Complete, verified (gaps closed 2026-10-28; accepted deviation: only history/education/project weights drive the stored score) (3 plans: 14-01, 14-02, 14-03)
 
 ### Milestone 5: Account Login & Per-User Encrypted Data (Complete)
+
 - [x] **Phase 15: Secure User Accounts and Encrypted Personal Data** — Complete (3 plans: 15-01, 15-02, 15-03)
 
+### Milestone 6: Concurrent Background Scraping & Parallel AI Scoring Engine (Complete)
+
+- [x] **Phase 16: Concurrent Background Scraping & Parallel AI Scoring Engine** — Complete (3 plans: 16-01, 16-02, 16-03)
+
+### Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)
+
+- [x] **Phase 17: Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Complete; 5/5 plans; verification passed 31/31; UAT 3/3; fresh independent review clean.
+- [ ] **Phase 18: Live Model Discovery for Cloud Providers & Ollama** — 5/5 plans implemented; verification human_needed for live provider/Ollama and browser acceptance. Resume: `/gsd-verify-work 18`.
+
+## Deferred Verification
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 18 | human_needed | /gsd-verify-work 18 |
+
+Phase 17 verification and UAT are resolved. Phase 18 still needs operator-owned
+live provider/Ollama and browser checks; do not archive milestone v7.0 until that
+verification is resolved.
+
 ## Progress Log
+
+- **2026-10-28**: Phase 17 completed after fresh verification passed 31/31 truths, UAT passed 3/3, security review closed 15/15 threats, and independent code review resolved CR-05/06 and WR-01/02. Final isolated suite: 673 passed, 4 existing deprecation warnings on Python 3.14.7. Python 3.10 was not available. Phase 18 remains active with live-provider/Ollama and browser checks pending; v7.0 remains open.
+- **2026-10-28**: Phase 18 plans 18-01..18-05 implemented. 18-04 added Refresh models, datalist bindings and the server-fragment slots to `templates/components/settings.html`; 18-05 added incident, two-account isolation and sentinel-key leak tests plus USER_MANUAL/CONTRIBUTING sync. Full suite 670 passed (mocked transports). `18-VERIFICATION.md` is human_needed (live provider/Ollama and browser checks). Phase 17 remains verification_deferred_human; milestone v7.0 active. No commits, installs, network or `data/` access.
+- **2026-10-28**: Remaining code-fixable gaps closed. Queue: running tasks now heartbeat their lease (`TaskQueue.touch_task`, every lease/3), so long tasks are not reclaimed and double-run. Config: `JOBOT_DATA_DIR` now derives DB/Chroma/key paths unless set explicitly. Lifespan wiring (worker/scheduler start, both backfills, failure tolerance) covered by 2 tests with fakes and disposable storage. Phase 15: legacy CV vectors with several accounts are re-keyed only when exactly one profile reproduces the stored summary exactly. 06/15 `covered_digest` recomputed via `verification.fingerprint` (both now fresh). Accepted: global worker pool, no per-user resizing. Full suite 560 passed. 10-VERIFICATION.md has a non-standard `status: gaps_closed` that the status tool rejects (pre-existing, not changed). No commits, installs, network or `data/` access.
+
+- **2026-10-28**: Closed real gaps from 06/15 verification. Phase 6: Settings honors `JOBOT_*` env, health probes use `/health`, Ollama model pre-pull added (compose `ollama-pull`, k8s postStart), devops tests now assert behavior; 06 is human_needed (Docker not run). Phase 15: CV vectors owner-scoped with safe single-account backfill, web cookies set `secure` per config; 15 passed. Full suite 553 passed via `tests/run_phase17.py`. No commits, installs, network or `data/` access.
+
+- **2026-10-28**: Residual gap closure for phases 5, 7, 9, 10, 11, 12, 14. Phase 10: running worker now reclaims expired task leases and resizes pools from global concurrency settings (2 tests). Phase 5: legacy feedback vectors without an owner are backfilled from job ownership at startup (1 test); 05-VALIDATION.md updated from draft. Phases 7/9/11: USER_MANUAL sections for the AI scraping toggle and LinkedIn login/status; closed `gaps:` lists removed (7, 9, 11 stay human_needed for live checks). Phase 14: remaining weights recorded as an accepted deviation. Fresh full suite via `tests/run_phase17.py`: 544 passed, 4 deprecation warnings (includes the 3 tests added today). Phase 17 stays deferred human_needed; milestone v7.0 stays active; no commits, installs, network calls or `data/` access.
+
+- **2026-10-28**: Final autonomous verification: all five Phase 17 plans implemented; four independently reproduced review findings fixed and re-reviewed clean; independent full suite 490 passed, 4 deprecation warnings. Twelve browser interaction groups and ten screenshots passed. Four earlier offline-fixture failures are resolved without runtime fallback changes. Verifier reports human_needed with no implementation blockers. User unavailable; recorded verification_deferred_human and prepared UAT. Audit/completion/cleanup remain gated; no commits, installs, production-data access or paid provider validation.
 
 - **2026-09-07**: Initialized Jobot project specification, requirements, domain research, roadmap, and configuration.
 - **2026-09-07**: Executed Phase 1: Built FastAPI app with `/health` endpoint, SQLModel SQLite schema with WAL concurrency & default settings seeding, embedded ChromaDB vector store, development Docker Compose stack, and 100% passing test suite.
@@ -54,3 +107,6 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 - **2026-09-08**: Began Phase 15 implementation for account login, revocable sessions, user ownership fields, and encrypted-data primitives; full route-level isolation and sensitive-field integration remain active work.
 - **2026-09-08**: Established a repository-wide code-quality convention targeting approximately 20–30% meaningful comments and docstrings in new or substantially modified modules, without mechanical narration or unrelated comment-only churn.
 - **2026-09-08**: Completed Phase 15: Added first-run registration, login/logout, revocable sessions, user-scoped records and settings, encrypted sensitive profile/provider data, legacy ownership migration, secret non-reflection, and authenticated regression coverage. Full suite: 99 passed.
+- **2026-09-11**: Completed Phase 16: Added decoupled scraping and evaluator worker loops, bounded parallel AI scoring, runtime concurrency settings, live queue metrics, and full regression coverage for parallel execution. Targeted tests passed.
+- **2026-10-27**: Completed only Plan 17-01: Added native Anthropic/Gemini adapters, safe bounded provider errors, eight-provider defaults, owner-only task resolution and fixed local embedding resolver. Disposable-storage client/authentication tests: 133 passed, 4 warnings. No commits or dependency changes; Phase 17 remains in progress.
+- **2026-10-28**: Executed only Plan 17-05 after Plans 17-01 through 17-04: expanded adapter/vault and authenticated cross-stage/local-vector regressions, repaired cloud-timeout web status mapping after a failing test, and synchronized README/user/contributor documentation. Final focused run: 322 passed, 4 warnings; full suite: 474 passed, 4 failed, 4 warnings. Remaining legacy LinkedIn, scheduler, queue and vector fixtures are recorded in 17-05-SUMMARY and VALIDATION, not broadly rewritten. Prior automated browser evidence is retained without claiming human acceptance. Phase 17 is 5/5 implemented, pending independent verifier/review; milestone v7.0 remains active. No Git mutations, installs, dependency changes or live provider requests.

@@ -114,3 +114,22 @@
 - **REQ-ACC-06**: Route installations with no account to registration and unauthenticated returning users to login.
 - **REQ-ACC-07**: Never render stored API keys or LinkedIn session cookies back into HTML forms.
 - **REQ-ACC-08**: Keep scoring calibration and remote-access preferences isolated per account.
+
+### 16. Concurrent Background Scraping & Parallel AI Scoring Engine
+- **REQ-PAR-01**: Decoupled asynchronous worker pools executing scraping tasks (`scrape_query`, `full_discovery`) and AI scoring tasks (`evaluate_job`) concurrently in parallel without blocking each other.
+- **REQ-PAR-02**: Bounded parallel AI job evaluation using an `asyncio.Semaphore` pool to evaluate multiple newly discovered jobs concurrently while guarding against Local Ollama VRAM/OOM exhaustion and Cloud API rate limits.
+- **REQ-PAR-03**: Multi-source concurrent scraping: concurrently execute LinkedIn and Google Jobs scraping (`JobSpyScraper`) alongside StepStone Playwright extraction (`StepStoneScraper`) with anti-bot delay staggering.
+- **REQ-PAR-04**: Dynamic concurrency configuration: configurable settings for maximum concurrent scrapers (`concurrency_max_scrapers`), maximum concurrent evaluators (`concurrency_max_evaluators`), and scraping stagger delay in AppSettings / UserSettings, with interactive UI sliders in the Settings tab.
+- **REQ-PAR-05**: Real-time parallel execution indicators in the AI Queue Control Center displaying active concurrent tasks, worker pool state (scraping vs. evaluation active count), and per-task status badges.
+- **REQ-PAR-06**: SQLite WAL concurrency and transaction safety with `PRAGMA busy_timeout=5000` and thread-safe atomic task claiming with exponential backoff retries.
+
+### 17. Multi-Provider & Hybrid Local/Cloud AI Routing Engine
+- **REQ-HYB-01**: Task-based pipeline routing that decouples AI execution into Scraping, Scoring, and Applying with independent provider and model selection per pipeline stage.
+- **REQ-HYB-02**: Multi-provider credential vault supporting encrypted at-rest storage for Ollama, OpenAI, Anthropic Claude, Google Gemini, Groq, DeepSeek, OpenRouter, and Custom OpenAI-compatible endpoints.
+- **REQ-HYB-03**: Direct lightweight adapters in `app/ai/client.py`: `OpenAICompatibleClient` (OpenAI, Groq, DeepSeek, OpenRouter, Custom), `AnthropicClient` (via httpx), `GeminiClient` (via httpx), and `OllamaAIClient`.
+- **REQ-HYB-04**: 100% Local ChromaDB vector embeddings pinned to Ollama (`nomic-embed-text`) for zero-cost, private semantic search and stable vector dimensions.
+- **REQ-HYB-05**: Strict failure transparency without silent model swaps: API errors (rate limits, quota exhaustion, network timeouts) surface explicitly in the UI and queue with manual switch-to-Ollama actions.
+- **REQ-HYB-06**: Settings UI with multi-provider credential cards, connection test status badges, 3-task assignment selectors, and 1-click cost-saving presets ("100% Free / Local", "Cost-Optimized Hybrid", "Max Quality Cloud").
+### 18. Live Model Discovery for Cloud Providers & Ollama
+- **REQ-HYB-07**: Live model discovery: per-provider list adapters (Gemini, Anthropic, OpenAI-compatible family, Ollama local/remote) with bounded pagination and timeouts, chat/generation-capable filtering, owner-scoped credentials, no key in URLs/logs/responses, short-TTL cache with manual refresh, and Settings dropdown suggestions that keep a free-text fallback.
+- **REQ-HYB-08**: Configured-model validation: the provider test and save flow warn when a configured model is absent from the live list (never auto-switching or blocking), and Ollama checks confirm both the chat model(s) and `nomic-embed-text` exist on the configured host with a display-only `ollama pull <model>` hint.
