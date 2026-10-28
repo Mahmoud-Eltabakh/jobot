@@ -1,5 +1,6 @@
 """Disposable localhost-only browser acceptance for canonical workspace pages."""
 
+import json
 import os
 import socket
 import tempfile
@@ -26,7 +27,7 @@ def main() -> None:
     from app.auth.dependencies import COOKIE_NAME
     from app.auth.security import create_user_session, hash_password
     from app.db.database import engine, init_db
-    from app.db.models import User, UserProfile
+    from app.db.models import Job, JobStatus, ScrapeTask, User, UserProfile, UserSetting
     from app.main import app
 
     init_db()
@@ -39,7 +40,34 @@ def main() -> None:
         session.add(user)
         session.commit()
         session.refresh(user)
-        session.add(UserProfile(user_id=user.id, full_name=user.full_name))
+        session.add(UserProfile(
+            user_id=user.id,
+            full_name="Phase 25 Browser Profile",
+            headline="Browser Fragment Sentinel",
+        ))
+        session.add(Job(
+            user_id=user.id,
+            source="preview",
+            title="Browser HTMX Sentinel",
+            company="Local Browser Co",
+            location="Berlin",
+            url="https://example.test/browser-sentinel",
+            status=JobStatus.NEW.value,
+            fit_score=88,
+            dedup_hash="phase25-browser-sentinel",
+        ))
+        session.add(ScrapeTask(
+            user_id=user.id,
+            task_type="scrape_query",
+            payload_json=json.dumps({"query": "Browser Queue Sentinel"}),
+            status="failed",
+            error_message="Browser Queue Sentinel",
+        ))
+        session.add(UserSetting(
+            user_id=user.id,
+            key="tailscale_hostname",
+            value_json=json.dumps("browser-settings-sentinel"),
+        ))
         session.commit()
         session_token = create_user_session(session, user.id).session_token
 
@@ -55,12 +83,14 @@ def main() -> None:
 
     base_url = f"http://127.0.0.1:{port}"
     pages = {
-        "/dashboard": ("dashboard", "/web/views/kanban"),
-        "/jobs/board": ("jobs-board", "/web/views/kanban"),
-        "/jobs/table": ("jobs-table", "/web/views/table"),
-        "/queue": ("queue", "/web/views/queue"),
-        "/profile": ("profile", "/web/views/profile"),
-        "/settings": ("settings", "/web/views/settings"),
+        "/dashboard": ("dashboard", "/web/views/kanban", "Browser HTMX Sentinel"),
+        "/jobs/board": ("jobs-board", "/web/views/kanban", "Browser HTMX Sentinel"),
+        "/jobs/table?q=Browser+HTMX+Sentinel&sort_by=created_at&sort_order=asc": (
+            "jobs-table", "/web/views/table?q=Browser+HTMX+Sentinel&sort_by=created_at&sort_order=asc", "Browser HTMX Sentinel",
+        ),
+        "/queue": ("queue", "/web/views/queue", "Browser Queue Sentinel"),
+        "/profile": ("profile", "/web/views/profile", "Phase 25 Browser Profile"),
+        "/settings": ("settings", "/web/views/settings", "browser-settings-sentinel"),
     }
     try:
         with sync_playwright() as playwright:
@@ -73,14 +103,21 @@ def main() -> None:
                 "httpOnly": True,
                 "sameSite": "Lax",
             }])
+            htmx_fixture = Path(__file__).parent / "fixtures" / "htmx-load.js"
+            context.route("https://unpkg.com/htmx.org@1.9.12", lambda route: route.fulfill(path=htmx_fixture))
             context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(base_url) else route.abort())
             page = context.new_page()
 
-            for path, (active_page, fragment_path) in pages.items():
+            for path, (active_page, fragment_path, fragment_text) in pages.items():
                 page.goto(base_url + path)
                 expect(page.locator("body")).to_have_attribute("data-page", active_page)
                 expect(page.locator("#view-container")).to_have_attribute("hx-get", fragment_path)
+                expect(page.locator("#view-container")).to_contain_text(fragment_text)
                 expect(page.locator("#popup-notifications")).to_be_attached()
+
+            page.goto(base_url + "/jobs/table?q=Browser+HTMX+Sentinel&sort_by=created_at&sort_order=asc")
+            page.get_by_text("Date Added", exact=True).click()
+            expect(page.locator("#view-container")).to_contain_text("Browser HTMX Sentinel")
 
             page.goto(base_url + "/dashboard")
             page.locator('a[href="/jobs/board"]').click()
