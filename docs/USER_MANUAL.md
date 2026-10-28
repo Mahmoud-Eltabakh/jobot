@@ -27,7 +27,8 @@ Welcome to **Jobot**, your intelligent, privacy-first, automated job search and 
 6. [AI Provider Setup & Hardware Acceleration](#6-ai-provider-setup--hardware-acceleration)
    - [Local Ollama (Default & Privacy-First)](#local-ollama-default--privacy-first)
    - [GPU & NPU Acceleration](#gpu--npu-hardware-acceleration)
-   - [Cloud API Providers (OpenAI / Groq)](#cloud-api-providers-openai--groq)
+   - [Provider Vault and Task Assignments](#provider-vault-and-task-assignments)
+   - [Manual Recovery and Local Vectors](#manual-recovery-and-local-vectors)
 7. [Normalized Scoring & UI Parameter Calibration](#7-normalized-scoring--ui-parameter-calibration)
    - [Normalized Sub-Factors](#normalized-sub-factors)
    - [Fine-Tuning Scales in Settings](#fine-tuning-scales-in-settings)
@@ -238,9 +239,12 @@ Navigate to the **Profile** tab in the top navigation bar:
 - Jobot automatically generates a 2-3 sentence executive summary based on your profile skills, experience, and target roles.
 
 ### LinkedIn Profile AI Ingestion & Sync
+- **Log in once:** on the Profile tab, enter your LinkedIn email and password and press **Log in to LinkedIn**. Jobot signs in through a headless browser and stores only the encrypted `li_at` session cookie for your account; the email and password are not saved. Accounts that require a verification (2FA) challenge may fail to log in headlessly; use the cookie paste option below in that case.
+- **Session status:** the badge next to the heading shows `Needs login`, `Session stored (not verified)`, `Logged In (Active)` or `Expired - log in again`. **Verify session** checks the stored cookie against LinkedIn on demand; the badge is never refreshed automatically, and a successful check does not guarantee later scrapes will not be rate limited or challenged.
 - Enter your public or authenticated **LinkedIn Profile URL** (`https://www.linkedin.com/in/username`).
-- *(Optional)* Provide your `li_at` session cookie to fetch complete private sections (experience items, full skills).
+- *(Optional)* Provide your `li_at` session cookie instead of logging in, to fetch complete private sections (experience items, full skills).
 - Click **"Sync Profile with li_at Cookie"**: Jobot extracts your experience and skills with AI, updates your SQLite profile, and re-computes semantic RAG vectors in ChromaDB.
+- Automated login may conflict with LinkedIn's terms of use and may trigger account checks; it has been tested offline with mocks only, not against live LinkedIn.
 
 ### Dynamic Skill-Driven Search Matrix
 - Under **Active Scraper Search Skills**, select or toggle the skills you want Jobot to target.
@@ -251,23 +255,80 @@ Navigate to the **Profile** tab in the top navigation bar:
 ## 7. AI Provider Setup & Hardware Acceleration
 
 ### Local Ollama (Default & Privacy-First)
-In the **Settings** panel, choose your AI backend:
-- Runs 100% locally with zero external API calls.
-- Requires Ollama installed (`http://localhost:11434`).
-- Recommended models: `llama3.1:8b`, `qwen2.5:7b`, or fine-tuned `job-searcher-qwen3` + `nomic-embed-text`.
+In **Settings > AI Providers**, set the Ollama endpoint to the host reachable from Jobot. `http://localhost:11434` is the default; containers may need `http://host.docker.internal:11434` or the Ollama service hostname instead. An optional saved bearer token belongs only to that account and endpoint. Local generation uses the editable `ollama_model`, initially `llama3.1:8b`.
+
+On the Ollama host, prepare the chosen generation model and the required vector model:
+
+```bash
+ollama pull llama3.1:8b
+ollama pull nomic-embed-text
+```
+
+Profile writes, job similarity, feedback writes and feedback queries always use Ollama `nomic-embed-text`, independent of generation choices. A different `OLLAMA_EMBED_MODEL` does not override this application invariant. The explicit local embeddings check lists models; it does not certify vector quality. Scrapers, LinkedIn and frontend CDNs still need external access; local AI is not a guarantee of fully offline operation.
 
 ### GPU & NPU Hardware Acceleration
-- **NVIDIA CUDA**: Auto-detected by host Ollama or mounted via Docker Compose `deploy.resources.reservations.devices`.
-- **AMD ROCm / DirectML**: Supported natively on Windows/Linux for Radeon RX series.
-- **Intel Arc / NPUs (Intel Core Ultra, AMD Ryzen AI, Qualcomm Snapdragon X)**: Accelerated via DirectML / Vulkan / ONNX runtime.
-- **Key Optimization Environment Variables**:
-  - `OLLAMA_NUM_GPU=999`: Offloads all model layers to VRAM.
-  - `OLLAMA_FLASH_ATTENTION=1`: Enables Flash Attention to reduce VRAM usage.
-  - `OLLAMA_KEEP_ALIVE=24h`: Keeps model cached in GPU VRAM.
+Acceleration depends on the installed Ollama build, operating system, drivers and supported hardware. Jobot sends requests to Ollama; it does not install GPU/NPU runtimes or certify device compatibility. Confirm supported hardware and model memory requirements with your Ollama installation before changing worker concurrency.
 
-### Cloud API Providers (OpenAI / Groq)
-- Select OpenAI, Groq, Anthropic, or custom OpenAI-compatible endpoints.
-- Enter your API Key and click **Test Connection**.
+### Provider Vault and Task Assignments
+
+The eight independent provider forms save encrypted, account-owned keys. Password fields always render empty; **Saved** reports presence only. Blank or whitespace-only secret submissions retain the existing key, not delete it. **Save Credentials** persists a replacement; **Test Connection** may use an unsaved replacement without saving it. A saved token cannot be tested against a changed unsaved endpoint unless you submit a new token explicitly.
+
+| Provider ID | Editable default model hint | Endpoint |
+|---|---|---|
+| `ollama` | `llama3.1:8b` | Owner's `ollama_base_url`; optional bearer token |
+| `openai` | `gpt-4o-mini` | `https://api.openai.com/v1` |
+| `anthropic` | `claude-sonnet-4-5` | `https://api.anthropic.com` (native Messages API) |
+| `gemini` | `gemini-2.5-flash` | `https://generativelanguage.googleapis.com` (native generateContent API) |
+| `groq` | `llama-3.3-70b-versatile` | `https://api.groq.com/openai/v1` |
+| `deepseek` | `deepseek-chat` | `https://api.deepseek.com` |
+| `openrouter` | `openai/gpt-4o-mini` | `https://openrouter.ai/api/v1` |
+| `custom` | Explicit model required | Owner's `provider_custom_url`, OpenAI-compatible |
+
+Model hints are not promises of current availability, billing access or output quality. OpenAI and other cloud providers use their fixed endpoints for Settings, probes and generation. Local/custom URLs accept HTTP or HTTPS but reject embedded credentials, query strings and fragments; redirects are not followed. Only connect to endpoints you trust with your private text and keys.
+
+**Save Routing** persists these exact pairs:
+
+| Stage | Provider field | Model field | Work |
+|---|---|---|---|
+| Scraping | `task_scraping_provider` | `task_scraping_model` | Search strategy, AI extraction and profile parsing/bio |
+| Scoring | `task_scoring_provider` | `task_scoring_model` | Fit evaluation |
+| Applying | `task_applying_provider` | `task_applying_model` | Cover letters and tailored resume bullets, not employer submission |
+
+Keys use `provider_{provider}_key`, for example `provider_gemini_key`; provider model hints use `{provider}_model`. Task models are independently editable. Legacy `ai_provider`, `openai_api_key` and `openai_model` remain compatible for the same owner. A noncanonical legacy `openai_base_url` is rejected before the OpenAI key is sent; configure OpenAI-compatible endpoints with the `custom` provider, its own key and `provider_custom_url`. A successful settings save fills missing task/vault fields without overwriting explicit values; a legacy custom key migrates to custom, not OpenAI. Viewing/testing settings does not migrate credentials. Global/environment keys and another account's credentials are never inherited.
+
+| Preset ID / Label | Scraping | Scoring | Applying |
+|---|---|---|---|
+| `local` / 100% Free / Local | `ollama` + owner's `ollama_model` | `ollama` + owner's `ollama_model` | `ollama` + owner's `ollama_model` |
+| `hybrid` / Cost-Optimized Hybrid | `ollama` + owner's `ollama_model` | `ollama` + owner's `ollama_model` | `openai` + `gpt-4o-mini` |
+| `cloud` / Max Quality Cloud | `openai` + `gpt-4o-mini` | `openai` + `gpt-4o-mini` | `openai` + `gpt-4o-mini` |
+
+Presets change exactly six assignment fields atomically, never keys/endpoints. Hybrid/cloud require the owner's OpenAI key; a missing key produces visible 422 feedback with no writes. Partial manual routing configuration can be saved before keys are available, but a cloud call without its required key fails. Preset labels are product names, not measured cost savings or comparative quality; local models still consume hardware and energy.
+
+Without owner overrides, Settings, connection tests, local/hybrid presets and execution use the installation's non-secret Ollama endpoint/model. Saving those displayed values does not redirect an existing host/container setup to localhost. Installation credentials are never inherited.
+
+**Connection test limits:** tests are explicit, bounded to five seconds and non-generating. Cloud success reports **Reachable; credentials unverified** because model listing does not prove generation capability, billing or model entitlement. Opening Settings does not probe providers. Generation has a 120-second whole-operation deadline and cloud connection timeout of five seconds; failures do not silently select another model or fabricate content.
+
+### Refreshing Model Suggestions (Phase 18)
+
+Each provider card has a **Refresh models** button. It asks that provider for its own model list and offers the result as suggestions in the Model fields (provider cards and the Scraping/Scoring/Applying rows, which follow the provider selected for that task). Opening Settings never fetches lists, and the key travels only in the form body.
+
+- **Listed is not verified.** A model that appears in the list is advertised by the provider; it is not proof that your key can generate with it. Only generation proves that.
+- **Free text always works.** You can type any model ID. If a list is loaded and your ID is not in it, a non-blocking warning reads "Not in provider list. You can still save; generation may fail." Save is never disabled, and Jobot never rewrites or switches your model.
+- **Caching.** Lists are cached for five minutes per account, provider, endpoint and key. A manual refresh bypasses the cache but is limited to once every five seconds per provider ("Wait a few seconds before refreshing again"). Changing a key or endpoint discards the cached list. Lists are never shared between accounts.
+- **Test Connection** also checks your configured model against the list and reports listed, not in provider list, or not checked (when the list could not be fetched).
+- **Ollama.** Test Connection checks that every Ollama-assigned chat model and `nomic-embed-text` exist on the host. Missing models show a display-only hint such as `ollama pull nomic-embed-text`; run it yourself on the Ollama host. Jobot never pulls or switches models for you. **Test Local Embeddings** shows the same hint when a reachable host lacks `nomic-embed-text`.
+
+### Manual Recovery and Local Vectors
+
+1. Inspect the selected provider/model and safe category in Settings, the Job Inspector or AI Queue. Authentication, quota, rate-limit, timeout and invalid-response errors are distinct; raw provider bodies and saved keys are not diagnostics.
+2. Correct credentials/model/endpoint, wait for a rate limit to clear, or choose **Switch to Local Ollama**. This changes all three assignments only; it does not retry, enqueue work, change credentials or start Ollama.
+3. Ensure the configured Ollama host has the selected model and `nomic-embed-text`. Then separately choose the owned task's **Retry** or regenerate the application material. A failed operation leaves previous job scores, materials and vectors intact; already successful earlier operations are not rolled back as one cross-store transaction.
+
+Provider-failed queue tasks remain failed until an explicit retry. Settings **Rescore All Stored Jobs** displays safe failures with separate local-switch and Retry actions. Cover-letter Retry retains the tone and custom instructions in the original options form; switching providers does not generate or replace a letter.
+
+An ordinary profile save can report a partial result when SQL data was saved but vector sync failed. CV/LinkedIn imports prepare vectors before persisting the imported profile; provider/vector failure preserves the previous profile instead of reporting successful sync.
+
+For `embedding_dimension`, do not reset collections, delete `data/`, substitute zero vectors, switch to cloud embeddings or change the embedding model to bypass the error. Stop writes/workers, back up SQLite, the configured `CHROMA_DIR`, and matching encryption keys, and confirm the Ollama endpoint/model. If existing vectors belong to an incompatible space, an operator must plan an explicit re-index from the source profile/feedback into a separate backed-up store and validate it before replacement. Phase 17 provides no automatic re-index button or migration command. Switching generation to local alone cannot repair an incompatible vector collection. Shared vector collection partitioning and database/vector atomicity are not redesigned by this routing feature.
 
 ---
 
@@ -293,6 +354,8 @@ Navigate to the **Settings** tab &rarr; **Scoring Engine Calibration & Fine-Tuni
 - **Automated Runs**: Scrapers automatically run on a periodic schedule (e.g., every 6, 12, or 24 hours).
 - **Manual Trigger**: Click **"Scrape Now"** on the dashboard to immediately fetch the latest postings.
 - **Deduplication**: Automatic SHA-256 deduplication prevents duplicate job cards.
+- **AI extraction fallback (StepStone)**: under **Settings > AI-Assisted Scraping & Query Strategy**, tick **Use AI extraction fallback (StepStone)** (off by default, saved per account). When StepStone's normal result cards cannot be parsed, the cleaned page is sent to your configured *scraping* model, and spam or non-job pages are discarded. AI search-query generation is always on and is not affected by this toggle. If the model is unavailable the scrape task fails visibly and is never replaced by guessed jobs. Page text goes to the provider you assigned to scraping, so choose a local model if that text must stay private.
+- **Worker recovery and concurrency**: tasks left `in_progress` by a crashed worker are returned to pending at start, and the running worker also reclaims claims older than the lease (`task_lease_seconds`, default 900 seconds, minimum 60), so a task running longer than the lease may be executed twice. Changes to the scraper/evaluator concurrency settings are applied within about a minute without a restart; reductions take effect as surplus loops become idle.
 
 ---
 
@@ -305,8 +368,16 @@ Conserve compute and hide unwanted roles before AI scoring:
 ---
 
 ## 11. Adaptive Feedback Loop
-- Tagging jobs as `not a good fit` or adding critical notes updates the vector database and suggests new blacklist keywords.
-- Advancing jobs to `applied` or `interview` stages strengthens positive semantic embeddings for future scoring.
+- Moving a job to `applied` or an `interview` stage records a positive feedback vector; `not a good fit` or `rejected` records a negative one. A note with positive or negative sentiment records its own vector. Moves without a signal (for example `seen`) record nothing.
+- Vectors are stored per account with the local `nomic-embed-text` model. Later jobs similar to your disliked roles lose up to 25 points of fit; similar to liked roles gain up to 10. If the embedding model is unreachable, your status or note is still saved and a warning explains that learning feedback was not recorded.
+- **Settings → Suggestions from your feedback** proposes blacklist rules (recurring words in negative notes and repeatedly rejected titles) and search terms (from roles you applied to or interviewed for). Nothing is applied automatically: **Add rule** / **Add search** create a rule or search for your account, **Dismiss** stores the rule as inactive so it is not proposed again, and **Hide** only removes a search term from the current view. Suggestions are simple frequency heuristics and need at least two occurrences.
+
+---
+
+## 11a. System Alerts & Diagnostics
+- A banner below the header is refreshed every 15 seconds and after view changes. It lists problems recorded by your failed queue tasks: AI provider unreachable, credential/quota problems, rate limits, LinkedIn session problems, and a paused queue, each with an **Open** button to the relevant view. It reports recorded failures only; it does not probe providers.
+- `GET /api/diagnostics/health` (signed-in session required) returns database, vector store, queue counts, configured AI provider name and your current alerts. It contains no keys, cookies or URLs and does not test provider reachability; use the connection tests in Settings for that.
+- Jobot never invents job listings: if a site page contains no parsable job cards, no jobs are returned.
 
 ---
 
@@ -351,4 +422,4 @@ Jobot provides two Docker launch modes:
 ```
 
 ---
-*Last updated: 2026-09-08 — Maintained automatically via `/jobot-docs-sync`.*
+*Last updated: 2026-10-28. Phase 17 routing and Phase 18 model-discovery documentation synchronized with implementation; Phase 17/18 UAT passed. Provider billing/entitlement, generation quality and exhaustive accessibility are not certified.*
