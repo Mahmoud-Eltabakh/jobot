@@ -1,6 +1,6 @@
 ---
 phase: 25-professional-page-architecture-and-route-separation
-verified: 2026-10-28T21:06:15Z
+verified: 2026-10-28T21:10:21Z
 status: passed
 score: 9/9 must-haves verified
 covered_files:
@@ -26,7 +26,7 @@ covered_files:
   - tests/test_page_routes.py
   - tests/test_task_queue.py
   - tests/test_web_routes.py
-covered_digest: "v3:sha256:62f71557a0a660283b81105730f602c3e4562172be24d428be95b5613b056852"
+covered_digest: "v3:sha256:a519705af37a6a844148be101af5be93a226b24520c2e069891e274eb69f3027"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -43,9 +43,9 @@ re_verification:
 # Phase 25: Professional Page Architecture and Route Separation Verification Report
 
 **Phase Goal:** Deliver direct, refresh-safe authenticated workspace pages while preserving the existing HTMX fragment, mutation, API, tenant-isolation, and popup contracts.
-**Verified:** 2026-10-28T21:06:15Z
+**Verified:** 2026-10-28T21:10:21Z
 **Status:** passed
-**Re-verification:** Yes - after review-fix commits through `dc4182b` and review documentation commit `cf6faed`
+**Re-verification:** Yes - refreshed against the current covered source after the focused pytest suite and localhost-only browser runner passed.
 
 ## Goal Achievement
 
@@ -103,8 +103,7 @@ re_verification:
 
 | Behavior | Command | Result | Status |
 | -------- | ------- | ------ | ------ |
-| Canonical routes, direct table query state, and two-account isolation | `.venv\\Scripts\\python.exe -m pytest tests/test_page_routes.py -q` | 19 passed; 2 dependency deprecation warnings | PASS |
-| Fragment, queue, and retained web-route contracts | `.venv\\Scripts\\python.exe -m pytest tests/test_htmx_views.py tests/test_task_queue.py tests/test_web_routes.py -q` | 81 passed; 2 dependency deprecation warnings | PASS |
+| Canonical routes, fragments, queue, profile, and retained web-route contracts | `.venv\\Scripts\\python.exe -m pytest tests/test_page_routes.py tests/test_htmx_views.py tests/test_task_queue.py tests/test_profile_and_linkedin.py tests/test_web_routes.py -q` | 135 passed; 2 dependency deprecation warnings | PASS |
 | Direct pages, live HTMX fragments, history navigation, sorting, and responsive overflow | `.venv\\Scripts\\python.exe tests/phase25_browser.py` | Exit 0 against disposable localhost-only state with local HTMX fixture | PASS |
 
 ### Requirements Coverage
@@ -144,5 +143,5 @@ None. The Phase 25 page architecture is implemented and connected without changi
 
 ---
 
-_Verified: 2026-10-28T21:06:15Z_
+_Verified: 2026-10-28T21:10:21Z_
 _Verifier: the agent (gsd-verifier)_
