@@ -18,7 +18,7 @@ created: "2026-10-28"
 | Interpreter | `.venv\Scripts\python.exe` (Python 3.14.7); project floor is Python 3.10, not executed here |
 | Quick run command | `.venv\Scripts\python.exe tests/run_phase17.py tests/test_model_catalog.py -q --tb=short` |
 | Full suite command | `.venv\Scripts\python.exe tests/run_phase17.py tests -q --tb=short` |
-| Full suite result | 677 passed, 4 existing deprecation warnings, 94.64s |
+| Full suite result | 690 passed, 4 existing deprecation warnings, 73.39s |
 
 The runner establishes disposable DB/Chroma/key paths before imports and blocks service sockets. Provider transports are mocked in automated tests; live provider behavior is covered only by operator UAT.
 
@@ -68,7 +68,7 @@ All 15 implementation tasks map to existing automated targets. The final full su
 - [x] All 15 implementation tasks have automated verification commands.
 - [x] No three consecutive implementation tasks lack an executable check.
 - [x] No package installs or watch-mode commands were used.
-- [x] Full isolated suite passed: 677 tests, 4 existing warnings.
+- [x] Full isolated suite passed: 690 tests, 4 existing warnings.
 - [ ] `nyquist_compliant: true` remains unset because REQ-QUAL-01 coverage was not measured.
 
 **Approval:** Behavioral coverage validated 2026-10-28; REQ-QUAL-01 remains an explicit unmeasured quality limitation.
