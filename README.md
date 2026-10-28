@@ -39,7 +39,7 @@
 ## ✨ Key Features
 
 - **⚡ Continuous Background Task Queue**: SQLite-backed asynchronous queue (`ScrapeTask`) and background worker daemon that scrapes, filters, and scores job opportunities continuously while you focus on work.
-- **🔒 Local & Privacy-First AI (0 Cost)**: Powered by local Ollama (`llama3.1`, `qwen2.5`, `job-searcher-qwen3`, `nomic-embed-text`) with native **GPU & NPU hardware acceleration** (NVIDIA CUDA, AMD ROCm/DirectML, Intel Arc/NPU). Zero API costs, zero data leakage. (Optionally supports Cloud AI like OpenAI/Groq).
+- **Local or Hybrid AI Routing**: Independent Scraping, Scoring and Applying provider/model choices across eight providers, with encrypted account-owned credentials. Profile and feedback vectors remain on the configured Ollama endpoint using `nomic-embed-text`; local operation still has hardware and energy costs.
 - **🌐 Multi-Platform Job Scraping**: Automated multi-source scraping across **LinkedIn**, **StepStone**, and **Google Jobs** via `python-jobspy` and Playwright with automated SHA-256 deduplication and anti-bot rate-limiting.
 - **🎯 Profile-Grounded Skill Search**: AI Query Strategist dynamically synthesizes Boolean search query matrices combining candidate target roles and active skills directly from uploaded CVs or profile data.
 - **📊 Normalized Multi-Factor Fit Scoring (0–100%)**: Ranks matches using normalized sub-factors: Skills Overlap Ratio (primary weight), Target Role & Seniority, Workplace & Location Preference, Experience Relevance, and ChromaDB Dense Vector RAG Similarity.
@@ -162,7 +162,23 @@ When a hostname and SSH user are saved, the panel displays the corresponding for
 | **Data Table** | Sortable tabular view displaying job postings, match percentages, compensation, locations, and source platforms. |
 | **AI Queue** | Real-time control center to monitor background task execution (`scrape_query`, `evaluate_job`, `full_discovery`), pause/resume worker, retry failed jobs, or clear queue. |
 | **Profile & CV** | Upload PDF/DOCX resumes, manage core skills matrix, generate professional AI bios, and sync LinkedIn profiles using `li_at` session cookie. |
-| **Settings** | Configure Ollama / OpenAI models, scoring weights, blacklist rules, and validated Tailscale SSH connection preferences. |
+| **Settings** | Eight provider credential forms, three independent task assignments, local embeddings status, presets, scoring weights, blacklist rules, and Tailscale SSH preferences. |
+
+---
+
+## AI Providers and Routing
+
+In **Settings > AI Providers**, save each account's credentials, then save the three task assignments. Supported IDs are `ollama`, `openai`, `anthropic`, `gemini`, `groq`, `deepseek`, `openrouter`, and `custom`. Custom requires an OpenAI-compatible endpoint and explicit model; Ollama's bearer token is optional. Blank secret inputs retain saved keys, which are never returned to forms or settings JSON. Accounts do not inherit global/environment credentials or another account's keys. Matching owner legacy settings migrate on a successful settings save, without overwriting explicit vault/task records.
+
+| Preset | Scraping | Scoring | Applying |
+|---|---|---|---|
+| 100% Free / Local (`local`) | Ollama / owner's `ollama_model` | Ollama / owner's `ollama_model` | Ollama / owner's `ollama_model` |
+| Cost-Optimized Hybrid (`hybrid`) | Ollama / owner's `ollama_model` | Ollama / owner's `ollama_model` | OpenAI / `gpt-4o-mini` |
+| Max Quality Cloud (`cloud`) | OpenAI / `gpt-4o-mini` | OpenAI / `gpt-4o-mini` | OpenAI / `gpt-4o-mini` |
+
+The local endpoint/model inherit the installation's non-secret Ollama configuration until the owner overrides them (`llama3.1:8b` is the model fallback). Settings, connection tests, local/hybrid presets and execution share these defaults, never installation credentials. Presets atomically change six assignment fields only, never credentials/endpoints. Hybrid/cloud reject missing owner OpenAI keys with 422 and no writes. Labels describe routing choices, not measured savings or comparative quality. Models remain editable hints, not verified account entitlements.
+
+**Test Connection** is explicit and non-generating. Cloud model-list reachability leaves credentials and generation capability unverified; Settings performs no automatic provider probes. Embeddings always require local Ollama `nomic-embed-text`, even with cloud generation (`ollama pull nomic-embed-text` on the Ollama host). A provider failure never silently switches models or saves fabricated application text. **Switch to Local Ollama** saves routing only; **Retry** or Generate is a separate owner-checked action. Dimension errors preserve existing vectors and require an operator-planned re-index after backup, not deleting `data/` or resetting collections. See the [provider and recovery guide](docs/USER_MANUAL.md#7-ai-provider-setup--hardware-acceleration) and [developer contracts](docs/CONTRIBUTING.md#phase-17-routing-and-failure-contracts).
 
 ---
 
@@ -182,12 +198,12 @@ When a hostname and SSH user are saved, the panel displays the corresponding for
 | `PREVIOUS_ENCRYPTION_KEYS` | `""` | Comma-separated `key-id:key` values retained during rotation |
 | `DATABASE_URL` | `sqlite:///data/jobot.db` | SQLite database connection string |
 | `CHROMA_DIR` | `data/chroma` | Persistent ChromaDB vector store directory |
-| `AI_PROVIDER` | `ollama` | Active AI provider (`ollama`, `openai`, `custom`) |
+| `AI_PROVIDER` | `ollama` | Installation generation default; all eight provider IDs are accepted; account task settings take precedence |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama HTTP endpoint URL |
 | `OLLAMA_MODEL` | `llama3.1:8b` | Ollama LLM model for job match evaluation |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model for ChromaDB RAG |
-| `OPENAI_API_KEY` | `""` | Optional Cloud AI API Key |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional Cloud AI base URL |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Legacy direct-client setting; application vector paths pin `nomic-embed-text` regardless |
+| `OPENAI_API_KEY` | `""` | Trusted installation-only legacy credential; never inherited by authenticated accounts |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Legacy setting; noncanonical endpoints are rejected. Configure OpenAI-compatible endpoints with the `custom` provider and `provider_custom_url` |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Optional Cloud AI LLM model |
 | `TAILSCALE_ENABLED` | `false` | Enable the saved Tailscale remote-access profile |
 | `TAILSCALE_HOSTNAME` | `""` | MagicDNS hostname or Tailscale IP for the Jobot host |
@@ -235,7 +251,7 @@ Contributions are warmly welcomed! Jobot is a community-driven open-source proje
 ## 🛡️ Security & Privacy
 
 Jobot is built privacy-first:
-- When configured with local Ollama, **100% of your data stays on your machine**.
+- Local generation and embeddings use your configured Ollama host; choose a trusted local endpoint. Scrapers/LinkedIn and frontend CDNs still make external requests, so local AI is not an offline or zero-leakage guarantee.
 - **Cloud AI Note:** If you configure an external cloud provider (e.g. OpenAI), your CV text, LinkedIn profile, and active job searches will be transmitted to that third party for evaluation.
 - Resumes, candidate profiles, and job descriptions are never sent to external telemetry.
 - Passwords are salted and hashed with scrypt; plaintext passwords are never persisted.

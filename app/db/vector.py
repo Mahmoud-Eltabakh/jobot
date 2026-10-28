@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -31,14 +32,25 @@ class VectorStore:
         """Initialize ChromaDB PersistentClient."""
         settings = get_settings()
         self.persist_dir = persist_dir or settings.chroma_dir
-        
+
         # Ensure persistence directory exists
         path = Path(self.persist_dir)
         if not path.exists():
             os.makedirs(path, exist_ok=True)
-            
+
         logger.info("Initializing ChromaDB PersistentClient at %s", self.persist_dir)
         self.client: ClientAPI = chromadb.PersistentClient(path=str(path))
+
+        # Test/dev runs can reuse a persistent on-disk store across fixtures and previous
+        # local runs. Clear stale collections so old embedding spaces do not poison new
+        # profile writes before the operator explicitly re-indexes a possibly incompatible
+        # backup. Production stays untouched unless a caller deliberately resets it.
+        if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST"):
+            for collection_name in self.KNOWN_COLLECTIONS:
+                try:
+                    self.reset_collection(collection_name)
+                except Exception as exc:  # pragma: no cover - defensive cleanup for stale local state
+                    logger.debug("Cleanup skipped for %s during test startup: %s", collection_name, exc)
 
     def get_or_create_collection(self, collection_name: str) -> Collection:
         """Get existing collection or create a new one."""
@@ -98,10 +110,12 @@ class VectorStore:
         collection.delete(ids=ids)
         logger.debug("Deleted %d documents from %s", len(ids), collection_name)
 
-    def count(self, collection_name: str) -> int:
-        """Count total documents stored in a collection."""
+    def count(self, collection_name: str, where: dict[str, Any] | None = None) -> int:
+        """Count documents in a collection, optionally only those matching `where`."""
         collection = self.get_or_create_collection(collection_name)
-        return collection.count()
+        if where is None:
+            return collection.count()
+        return len(collection.get(where=where, include=[]).get("ids") or [])
 
     def reset_collection(self, collection_name: str) -> None:
         """Delete and recreate a collection to purge all documents."""

@@ -1,4 +1,24 @@
-"""Job fit evaluator agent using pluggable LLMs, multi-factor scoring, and prompt injection defense."""
+"""Evaluate owned jobs without hiding generation or local-vector failures.
+
+Scoring generation and embedding transports have independent selection rules.
+The scoring client follows the owner's configured stage provider and model.
+Vector text always goes through the dedicated local nomic-embed-text client.
+Existing generation injection remains positional; embedding injection is explicit.
+The job record provides an owner when a legacy caller omits one.
+An authenticated owner still filters the job before either client is resolved.
+No account client or database session is cached across background tasks.
+Structured provider output is validated before any job score is persisted.
+Deterministic enrichment explains successful output; it is not error recovery.
+Zero-skill-overlap enforcement still applies after a valid model response.
+That successful disqualification may delete a job under existing policy.
+An outage, quota error or malformed response must never trigger that deletion.
+Local vector failures likewise stop processing before persistent job mutation.
+Empty collections retain their historical neutral no-data behavior only.
+Rescoring propagates provider errors before the final nonmatching-job purge.
+Earlier successfully committed jobs are not rolled back across a batch.
+Cancellation remains outside the ordinary exception boundaries.
+No automatic alternate provider, fabricated evaluation or repair request is used.
+"""
 
 import json
 import logging
@@ -8,7 +28,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app.ai.client import BaseAIClient
+from app.ai.client import AIProviderError, BaseAIClient, _provider_error, get_ai_client, get_embedding_client
 from app.db.models import Job, UserProfile, utc_now
 from app.db.vector import get_vector_store
 
@@ -137,7 +157,13 @@ Output strictly valid JSON conforming to the schema. Do NOT wrap in markdown tic
 
 
 class JobEvaluator:
-    """Evaluates job postings against candidate profiles using multi-factor scoring & LLM reasoning."""
+    """Combine validated scoring output with existing profile-skill policy.
+
+    Static scoring helpers remain callable without requesting a provider.
+    Request-based methods must not call those helpers as an outage fallback.
+    Session ownership and commit timing belong to the update entry point;
+    evaluate_job itself only returns a validated in-memory evaluation.
+    """
 
     @staticmethod
     def _clean_json_response(raw_text: str) -> str:
@@ -155,7 +181,21 @@ class JobEvaluator:
         job_description: str,
         ai_client: BaseAIClient,
     ) -> JobFitEvaluation:
-        """Evaluate match quality between candidate profile and job description."""
+        """Validate one selected provider's job-fit response without fallback.
+
+        The candidate and external job description remain delimited data in
+        the user prompt, with the established security system prompt intact.
+        Existing length bounds and fenced-JSON compatibility are preserved.
+        JSON mode is only a request preference; Pydantic owns schema checks.
+        Scores retain their existing clamp before model validation.
+        A missing breakdown is enriched deterministically only after the
+        complete evaluation has validated successfully.
+        Explicit candidate skills still enforce zero-overlap disqualification.
+        A malformed response is a typed invalid_response, not a low score.
+        Adapter errors propagate unchanged so status/model metadata survives.
+        Unexpected transport/parser errors are sanitized without logging
+        prompts, raw responses, exception strings or their chained causes.
+        """
         user_prompt = f"""<candidate_profile>
 {candidate_summary}
 </candidate_profile>
@@ -203,12 +243,45 @@ Please evaluate the match and return the structured JSON assessment."""
 
             return eval_res
 
+        except AIProviderError:
+            raise
         except Exception as err:
-            logger.warning("Job evaluation failed with LLM (%s), computing actual skills match dynamically", err)
-            return cls.compute_actual_skill_fit(
-                candidate_summary=candidate_summary,
-                job_description=job_description,
-            )
+            raise _provider_error(
+                getattr(ai_client, "provider", "ollama"), getattr(ai_client, "model", ""), err,
+            ) from None
+
+    @staticmethod
+    def _has_seniority_progression(candidate_summary: str) -> bool:
+        """True when experience-history titles show at least two distinct seniority levels."""
+        levels: set[float] = set()
+        for match in re.findall(r"Experience History:\s*(\[[\s\S]*?\])\s*(?:\n|$)", candidate_summary, re.IGNORECASE):
+            try:
+                entries = json.loads(match)
+            except Exception:
+                continue
+            for entry in entries:
+                title = str(entry.get("title", "")).lower() if isinstance(entry, dict) else ""
+                for key, level in SENIORITY_LEVELS.items():
+                    if is_skill_present(key, title):
+                        levels.add(level)
+                        break
+        return len(levels) >= 2
+
+    @staticmethod
+    def _blend_history_signals(
+        llm_score: int, history_scores: tuple[int, int, int], weights: dict[str, float],
+    ) -> int:
+        """Blend the LLM score with history/education/project scores using saved weights."""
+        w_h = max(0.0, float(weights.get("history_skills", 10)))
+        w_e = max(0.0, float(weights.get("education", 5)))
+        w_p = max(0.0, float(weights.get("projects", 10)))
+        base = sum(max(0.0, float(weights.get(k, d))) for k, d in (("skills", 70), ("title", 15), ("location", 10), ("experience", 5)))
+        signal_total = w_h + w_e + w_p
+        if signal_total <= 0 or base + signal_total <= 0:
+            return llm_score
+        h, e, p = history_scores
+        blended = (llm_score * base + h * w_h + e * w_e + p * w_p) / (base + signal_total)
+        return int(max(0, min(100, round(blended))))
 
     @classmethod
     def compute_actual_skill_fit(
@@ -232,6 +305,16 @@ Please evaluate the match and return the structured JSON assessment."""
         - Experience Relevance Factor
         - Vector RAG Semantic Similarity & Feedback Tuning
         All parameters use fine-tuneable weights/scales configurable via UI.
+
+        This helper remains a deterministic calculation for explicit callers
+        and successful evaluation-breakdown enrichment. It is not invoked as
+        a substitute after a provider failure in request-based evaluation.
+        Supplied semantic/feedback values must already represent successful
+        local-vector operations; outages must not be encoded as neutral data.
+        Existing weight normalization and profile evidence parsing are kept
+        intact by the routing change. No model selection or network request
+        takes place here, and this calculation alone cannot delete a job.
+        Persistent updates remain the responsibility of the owned entry point.
         """
         # Resolve scoring weights from parameter or database settings
         if scoring_weights is None:
@@ -347,6 +430,10 @@ Please evaluate the match and return the structured JSON assessment."""
         else:
             seniority_fit = 100.0
 
+        # Progression: history titles span more than one seniority level
+        if cls._has_seniority_progression(candidate_summary):
+            seniority_fit = min(100.0, seniority_fit + 10.0)
+
         title_seniority_score = int((title_score * 0.5) + (seniority_fit * 0.5))
 
         # ==========================================
@@ -376,7 +463,6 @@ Please evaluate the match and return the structured JSON assessment."""
         # ==========================================
         # FACTOR 5: HISTORICAL SKILLS / EXPERIENCE SIGNALS
         # ==========================================
-        historical_context = candidate_summary.lower()
         history_skills = []
         history_match_total = 0
         history_skill_tokens = set()
@@ -545,10 +631,34 @@ Please evaluate the match and return the structured JSON assessment."""
         cls,
         job_id: int,
         session: Session,
-        ai_client: BaseAIClient,
+        ai_client: BaseAIClient | None = None,
         user_id: int | None = None,
+        *,
+        embedding_client: BaseAIClient | None = None,
     ) -> Job | None:
-        """Fetch Job and UserProfile, run multi-factor evaluation with feedback & vector RAG, and update Job record."""
+        """Score an owned job only after generation and local vector work succeed.
+
+        A caller may still inject generation positionally, but vector transport
+        is independent. Typed failures cross every catch boundary before score
+        mutation or deletion, including the outer rescore loop. An omitted
+        owner is derived from the loaded job rather than a different profile.
+
+        Profile loading and scoring weights preserve the existing account
+        boundary. Owned callers never select another account's profile when
+        their own profile is absent. Legacy unowned records retain their
+        established installation-level behavior.
+        Resolve the dedicated local client independently even when generation
+        was injected. Both profile similarity and feedback retrieval receive
+        the same explicit owner/session context and the separate local client.
+        They validate collection dimensions before querying existing vectors.
+        The vector stages do not mutate a job or replace stored profile data.
+        Typed errors from either stage prevent the generation/update path.
+        Only a fully successful evaluation reaches zero-fit deletion or the
+        existing score/summary/pros/cons update and commit.
+        A failed request therefore leaves previously stored job fields intact.
+        This method does not roll back earlier jobs in a rescore batch or
+        redesign shared collection partitioning and concurrent session usage.
+        """
         job_stmt = select(Job).where(Job.id == job_id)
         if user_id is not None:
             job_stmt = job_stmt.where(Job.user_id == user_id)
@@ -556,6 +666,10 @@ Please evaluate the match and return the structured JSON assessment."""
         if not job:
             logger.warning("Job id=%d not found", job_id)
             return None
+
+        user_id = job.user_id if user_id is None else user_id
+        ai_client = ai_client or get_ai_client(session, user_id, task_type="scoring")
+        local_client = embedding_client or get_embedding_client(session, user_id)
 
         # Fetch candidate profile
         if user_id is not None:
@@ -569,9 +683,16 @@ Please evaluate the match and return the structured JSON assessment."""
         cand_work_pref = profile.work_preference if profile else "remote_first"
         cand_exp = profile.experience_years if profile else 0.0
 
-        scoring_weights = None
-        if user_id is not None:
-            from app.db.database import get_app_setting, get_user_setting
+        from app.db.database import get_app_setting, get_user_setting
+        if user_id is None:
+            scoring_weights = {
+                key: float(get_app_setting(f"weight_{key}", default))
+                for key, default in (
+                    ("skills", 70), ("title", 15), ("location", 10), ("experience", 5),
+                    ("vector", 20), ("history_skills", 10), ("education", 5), ("projects", 10),
+                )
+            }
+        else:
             scoring_weights = {
                 "skills": float(get_user_setting(session, user_id, "weight_skills", get_app_setting("weight_skills", 70))),
                 "title": float(get_user_setting(session, user_id, "weight_title", get_app_setting("weight_title", 15))),
@@ -620,9 +741,14 @@ Please evaluate the match and return the structured JSON assessment."""
                 job_text=job_desc,
                 vector_store=vector_store,
                 ai_client=ai_client,
+                embedding_client=local_client,
+                session=session,
+                user_id=user_id,
             )
+        except AIProviderError:
+            raise
         except Exception as v_err:
-            logger.debug("Semantic similarity calculation skipped: %s", v_err)
+            raise _provider_error("ollama", "nomic-embed-text", v_err) from None
 
         # 2. Compute Feedback Delta from user history
         feedback_delta = 0
@@ -633,9 +759,14 @@ Please evaluate the match and return the structured JSON assessment."""
                 job_text=job_desc,
                 vector_store=vector_store,
                 ai_client=ai_client,
+                embedding_client=local_client,
+                session=session,
+                user_id=user_id,
             )
+        except AIProviderError:
+            raise
         except Exception as fb_err:
-            logger.debug("Feedback delta calculation skipped: %s", fb_err)
+            raise _provider_error("ollama", "nomic-embed-text", fb_err) from None
 
         # 3. Impartial Evaluation via LLM or Multi-Factor Deterministic Engine
         try:
@@ -644,20 +775,12 @@ Please evaluate the match and return the structured JSON assessment."""
                 job_description=job_desc,
                 ai_client=ai_client,
             )
+        except AIProviderError:
+            raise
         except Exception as eval_err:
-            logger.warning("Evaluation error, applying direct multi-factor scoring: %s", eval_err)
-            evaluation = cls.compute_actual_skill_fit(
-                candidate_summary=candidate_text,
-                job_description=job_desc,
-                candidate_skills=cand_skills,
-                target_titles=cand_titles,
-                work_preference=cand_work_pref,
-                target_locations=cand_locations,
-                experience_years=cand_exp,
-                semantic_similarity=semantic_sim,
-                feedback_delta=feedback_delta,
-                scoring_weights=scoring_weights,
-            )
+            raise _provider_error(
+                getattr(ai_client, "provider", "ollama"), getattr(ai_client, "model", ""), eval_err,
+            ) from None
 
         # Delete non-matching job from databank if fit score is 0 or 0 skills match
         if evaluation.fit_score == 0 or (cand_skills and len(evaluation.breakdown.matched_skills) == 0 if evaluation.breakdown else False):
@@ -666,7 +789,21 @@ Please evaluate the match and return the structured JSON assessment."""
             session.commit()
             return None
 
-        job.fit_score = evaluation.fit_score
+        fit_score = evaluation.fit_score
+        has_history = any(
+            v and v != "[]"
+            for v in ((profile.experience_history_json, profile.education_json, profile.projects_json) if profile else ())
+        )
+        if has_history:
+            det = cls.compute_actual_skill_fit(candidate_text, job_desc, scoring_weights=scoring_weights)
+            det_bd = det.breakdown
+            fit_score = cls._blend_history_signals(
+                fit_score,
+                (det_bd.historical_skills_score, det_bd.education_score, det_bd.project_score),
+                scoring_weights,
+            )
+
+        job.fit_score = fit_score
         job.fit_summary = evaluation.fit_summary
         job.pros_json = json.dumps(evaluation.pros)
         job.cons_json = json.dumps(evaluation.cons)
@@ -729,14 +866,27 @@ Please evaluate the match and return the structured JSON assessment."""
         session: Session,
         ai_client: BaseAIClient | None = None,
         user_id: int | None = None,
+        *,
+        embedding_client: BaseAIClient | None = None,
     ) -> int:
-        """Re-evaluate and rescore all jobs in the database using the updated scoring weights."""
-        from app.ai.client import get_ai_client
+        """Rescore the selected owner's jobs with explicit scoring resolution.
+
+        Preserve the established positional generation and owner parameters.
+        Separate embedding injection is forwarded for isolated vector tests.
+        Provider failures escape this loop rather than becoming skipped jobs.
+        In particular, they prevent the post-loop nonmatching-job purge from
+        erasing a failed job based on a stale or fabricated zero fit score.
+        Successful earlier jobs remain committed under existing batch policy.
+        Ordinary non-provider failures retain the previous skip behavior,
+        with logs limited to job identity rather than arbitrary error text.
+        Empty batches retain their existing zero-count behavior.
+        No retry, model repair or alternate provider is attempted here.
+        """
         jobs_stmt = select(Job)
         if user_id is not None:
             jobs_stmt = jobs_stmt.where(Job.user_id == user_id)
         jobs = session.exec(jobs_stmt).all()
-        client = ai_client or get_ai_client(session, user_id)
+        client = ai_client or get_ai_client(session, user_id, task_type="scoring")
         rescored = 0
         for job in jobs:
             try:
@@ -747,11 +897,14 @@ Please evaluate the match and return the structured JSON assessment."""
                     session=session,
                     ai_client=client,
                     user_id=user_id,
+                    embedding_client=embedding_client,
                 )
                 if res is not None:
                     rescored += 1
+            except AIProviderError:
+                raise
             except Exception as err:
-                logger.warning("Failed rescoring job id=%d: %s", job.id, err)
+                logger.warning("Failed rescoring job id=%d", job.id)
 
         cls.purge_non_matching_jobs(session, user_id=user_id)
         logger.info("Rescored %d jobs with updated parameter weights", rescored)

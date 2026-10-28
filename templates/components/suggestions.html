@@ -1,0 +1,50 @@
+<!-- Feedback-derived suggestions; nothing applies until the user approves it -->
+<div id="suggestions-panel" class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4"
+     hx-on::after-request="if (event.detail.successful && event.detail.requestConfig.verb === 'post') htmx.ajax('GET','/web/views/settings',{target:'#view-container'})">
+    <div>
+        <h3 class="text-sm font-semibold text-slate-200">Suggestions from your feedback</h3>
+        <p class="text-[11px] text-slate-500">Based on jobs you marked not a fit or rejected, and on jobs you applied to. Dismissed rules stay in the list above as inactive.</p>
+    </div>
+
+    <div class="space-y-2">
+        <h4 class="text-xs font-semibold text-slate-300">Blacklist rules</h4>
+        {% for r in rules %}
+        <form class="flex flex-wrap items-center gap-2 text-xs" hx-swap="none">
+            <input type="hidden" name="rule_type" value="{{ r.rule_type }}">
+            <input type="hidden" name="pattern" value="{{ r.pattern }}">
+            <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">{{ r.rule_type }}</span>
+            <span class="font-mono text-slate-200">{{ r.pattern }}</span>
+            <span class="text-slate-500">{{ r.reason }}</span>
+            <button type="button" hx-post="/api/suggestions/blacklist/approve" hx-include="closest form" hx-swap="none"
+                    class="px-2.5 py-1 rounded bg-emerald-700 text-white">Add rule</button>
+            <button type="button" hx-post="/api/suggestions/blacklist/dismiss" hx-include="closest form" hx-swap="none"
+                    class="px-2.5 py-1 rounded bg-slate-800 text-slate-300">Dismiss</button>
+        </form>
+        {% else %}
+        <p class="text-xs text-slate-500">No suggestions yet. They appear after repeated negative feedback.</p>
+        {% endfor %}
+    </div>
+
+    <div class="space-y-2">
+        <h4 class="text-xs font-semibold text-slate-300">Search terms</h4>
+        {% for term in terms %}
+        <form class="flex flex-wrap items-center gap-2 text-xs">
+            <input type="hidden" name="keywords" value="{{ term }}">
+            <span class="font-mono text-slate-200">{{ term }}</span>
+            <select name="source" class="bg-slate-900 border border-slate-700 rounded p-1 text-slate-200">
+                <option value="linkedin">LinkedIn</option>
+                <option value="stepstone">StepStone</option>
+                <option value="google">Google</option>
+            </select>
+            <input type="text" name="location" value="{{ default_location }}" placeholder="Location" required
+                   class="bg-slate-900 border border-slate-700 rounded p-1 text-slate-200">
+            <button type="button" hx-post="/api/suggestions/search-terms/approve" hx-include="closest form" hx-swap="none"
+                    class="px-2.5 py-1 rounded bg-emerald-700 text-white">Add search</button>
+            <button type="button" onclick="this.closest('form').remove()"
+                    class="px-2.5 py-1 rounded bg-slate-800 text-slate-300">Hide</button>
+        </form>
+        {% else %}
+        <p class="text-xs text-slate-500">No search terms yet. They appear after you apply to similar roles.</p>
+        {% endfor %}
+    </div>
+</div>

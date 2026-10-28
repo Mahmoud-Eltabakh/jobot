@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.db.models import UserProfile, utc_now
 from app.db.ownership import encrypt_profile, get_user_profile
+from app.ai.client import AIProviderError, _provider_error
 
 logger = logging.getLogger("jobot.ai.profile_extractor")
 
@@ -98,12 +99,11 @@ Write a concise 2-3 sentence Executive Summary / Professional Bio."""
             clean_bio = re.sub(r"^```\w*\n?|\n?```$", "", clean_bio).strip()
         if clean_bio:
             return clean_bio
+        raise AIProviderError(client.provider, client.model, "invalid_response")
+    except AIProviderError:
+        raise
     except Exception as err:
-        logger.warning("AI bio generation failed (%s), constructing dynamic fallback bio", err)
-
-    titles_str = f" specializing in {', '.join(titles[:2])}" if titles else ""
-    skills_str = f" Core competencies include {', '.join(skills[:5])}." if skills else ""
-    return f"{full_name} is a results-driven professional with {exp_years} years of industry experience{titles_str}.{skills_str} Proven track record in delivering scalable solutions and driving technical innovation."
+        raise _provider_error(getattr(client, "provider", "ollama"), getattr(client, "model", ""), err) from None
 
 
 def extract_dynamic_skills_from_text(raw_text: str) -> list[str]:
@@ -189,14 +189,18 @@ async def extract_profile_from_text(
 
             data = json.loads(clean_json)
             extracted = ExtractedProfile.model_validate(data)
+            if not any((extracted.full_name.strip(), extracted.headline, extracted.summary.strip(), extracted.skills)):
+                raise ValueError("Empty extracted profile")
+        except AIProviderError:
+            raise
         except Exception as err:
-            logger.warning("LLM profile extraction failed (%s), using heuristic fallback", err)
+            raise _provider_error(getattr(ai_client, "provider", "ollama"), getattr(ai_client, "model", ""), err) from None
 
     if extracted is None:
         extracted = _fallback_heuristic_extraction(raw_text)
 
     # Automatically generate professional executive summary using AI if empty or generic
-    if not extracted.summary or len(extracted.summary.strip()) < 25 or "Profile parsed" in extracted.summary:
+    if ai_client is not None and (not extracted.summary or len(extracted.summary.strip()) < 25 or "Profile parsed" in extracted.summary):
         try:
             extracted.summary = await generate_candidate_bio(
                 profile_data={
@@ -210,6 +214,8 @@ async def extract_profile_from_text(
                 },
                 ai_client=ai_client,
             )
+        except AIProviderError:
+            raise
         except Exception as b_err:
             logger.warning("Failed auto-generating bio during profile extraction: %s", b_err)
 

@@ -74,6 +74,14 @@ spec:
         - name: ollama
           image: ollama/ollama:latest
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            postStart:
+              exec:
+                # Background pull so the container still reports started; models persist on the PVC.
+                command:
+                  - sh
+                  - -c
+                  - "(until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:7b; ollama pull nomic-embed-text) >/proc/1/fd/1 2>&1 &"
           ports:
             - containerPort: 11434
               name: http
@@ -164,13 +172,13 @@ spec:
               mountPath: /app/data
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: 8000
             initialDelaySeconds: 20
             periodSeconds: 15

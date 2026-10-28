@@ -95,6 +95,77 @@
         </form>
     </div>
 
+    <section id="ai-providers" class="min-w-0 space-y-4" aria-labelledby="ai-providers-title"
+             hx-on::before-swap="if(event.detail.xhr.status >= 400 && event.detail.xhr.status < 600) { event.detail.shouldSwap = true; event.detail.isError = false; }">
+        <h3 id="ai-providers-title" class="text-base font-semibold text-slate-200">AI Providers</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {% for provider, config in provider_configs.items() %}
+            <form id="provider-form-{{ provider }}" hx-post="/api/settings/ai/credentials" hx-target="#provider-save-{{ provider }}" hx-disabled-elt="find button"
+                  hx-on::after-request="if(event.detail.successful &amp;&amp; event.detail.requestConfig.path === '/api/settings/ai/credentials') { this.querySelector('input[type=password]').value = ''; }"
+                class="min-w-0 border border-slate-700 rounded-lg p-4 space-y-3 text-sm">
+                <h4 class="font-semibold text-slate-200">{{ {'ollama':'Ollama','openai':'OpenAI','anthropic':'Anthropic','gemini':'Gemini','groq':'Groq','deepseek':'DeepSeek','openrouter':'OpenRouter','custom':'Custom'}[provider] }}</h4>
+                <label for="provider-key-{{ provider }}" class="block text-slate-300">API key{% if provider == 'ollama' %} (optional){% endif %}</label>
+                <input id="provider-key-{{ provider }}" type="password" name="provider_{{ provider }}_key" value="" autocomplete="new-password" class="w-full min-w-0 bg-slate-950 border border-slate-700 rounded p-2 text-slate-200">
+                <span id="provider-secret-state-{{ provider }}" data-secret-state class="block text-xs text-slate-400">{{ 'Saved' if config.has_key else 'Not configured' }}</span>
+                {% if provider in ('ollama','custom') %}
+                <label for="provider-url-{{ provider }}" class="block text-slate-300">Endpoint</label>
+                <input id="provider-url-{{ provider }}" name="{{ 'ollama_base_url' if provider == 'ollama' else 'provider_custom_url' }}" value="{{ config.base_url }}" class="w-full min-w-0 bg-slate-950 border border-slate-700 rounded p-2 text-slate-200">
+                {% endif %}
+                <label for="provider-model-{{ provider }}" class="block text-slate-300">Model</label>
+                <input id="provider-model-{{ provider }}" list="provider-models-{{ provider }}" name="{{ provider }}_model" value="{{ config.model }}" aria-describedby="provider-model-help-{{ provider }} model-warning-{{ provider }}" oninput="jobotModelWarn(this, 'model-warning-{{ provider }}')" class="w-full min-w-0 bg-slate-950 border border-slate-700 rounded p-2 text-slate-200">
+                <datalist id="provider-models-{{ provider }}"></datalist>
+                <p id="provider-model-help-{{ provider }}" class="text-xs text-slate-400">Models are suggestions; type any ID.</p>
+                <div id="model-warning-{{ provider }}" role="status" aria-live="polite" class="min-h-[16px] text-xs text-amber-400 break-words"></div>
+                {% if provider == 'ollama' %}<div id="ollama-requirements-hint" aria-live="polite" class="text-xs text-slate-300 break-words"></div>{% endif %}
+                <div class="flex flex-wrap gap-2">
+                    <button type="submit" class="min-h-[36px] px-3 rounded bg-emerald-700 text-white">Save Credentials</button>
+                    <button type="button" hx-post="/api/settings/provider-models" hx-target="#provider-status-{{ provider }}" hx-swap="outerHTML" hx-disabled-elt="this"
+                            hx-on::config-request="event.detail.parameters = {provider:'{{ provider }}',api_key:document.getElementById('provider-key-{{ provider }}').value,base_url:document.getElementById('provider-url-{{ provider }}')?.value || '',model:document.getElementById('provider-model-{{ provider }}').value,refresh:'1'}"
+                            hx-on::before-request="document.getElementById('provider-status-{{ provider }}').textContent='Refreshing models...'"
+                            class="min-h-[36px] px-3 rounded border border-slate-600 text-slate-200">Refresh models</button>
+                    <button type="button" hx-post="/api/settings/test-provider" hx-target="#provider-status-{{ provider }}" hx-swap="outerHTML" hx-disabled-elt="this"
+                            hx-vals='js:{provider: "{{ provider }}", api_key: document.getElementById("provider-key-{{ provider }}").value, base_url: document.getElementById("provider-url-{{ provider }}")?.value || "", model: document.getElementById("provider-model-{{ provider }}").value}'
+                            hx-on::config-request="event.detail.parameters = {provider:'{{ provider }}',api_key:document.getElementById('provider-key-{{ provider }}').value,base_url:document.getElementById('provider-url-{{ provider }}')?.value || '',model:document.getElementById('provider-model-{{ provider }}').value}"
+                            hx-on::before-request="document.getElementById('provider-status-{{ provider }}').textContent='Testing...'"
+                            class="min-h-[36px] px-3 rounded border border-sky-600 text-sky-300">Test Connection</button>
+                </div>
+                <div id="provider-save-{{ provider }}" aria-live="polite" class="min-h-[24px] break-words"></div>
+                <div id="provider-status-{{ provider }}" aria-live="polite" class="min-h-[24px] break-words">Unchecked</div>
+            </form>
+        {% endfor %}
+        </div>
+        {% block ai_routing %}
+        <div id="ai-routing-controls" class="space-y-4 min-w-0">
+            <form hx-post="/api/settings/ai" hx-target="#ai-routing-controls" hx-swap="outerHTML" class="space-y-3">
+                {% for stage in ('scraping','scoring','applying') %}
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
+                    <label for="task-{{ stage }}-provider" class="text-sm text-slate-300">{{ stage|capitalize }}</label>
+                    <select id="task-{{ stage }}-provider" name="task_{{ stage }}_provider" aria-label="{{ stage|capitalize }} provider" onchange="var m=document.getElementById('task-{{ stage }}-model'); m.setAttribute('list','provider-models-'+this.value); jobotModelWarn(m,'model-warning-task-{{ stage }}')" class="min-w-0 w-full bg-slate-950 border border-slate-700 rounded p-2 text-slate-200">
+                    {% for provider in provider_configs %}<option value="{{ provider }}" {% if task_assignments['task_' ~ stage ~ '_provider'] == provider %}selected{% endif %}>{{ provider }}</option>{% endfor %}
+                    </select>
+                    <div class="min-w-0">
+                    <input id="task-{{ stage }}-model" name="task_{{ stage }}_model" aria-label="{{ stage|capitalize }} model" list="provider-models-{{ task_assignments['task_' ~ stage ~ '_provider'] }}" aria-describedby="model-warning-task-{{ stage }}" oninput="jobotModelWarn(this, 'model-warning-task-{{ stage }}')" value="{{ task_assignments['task_' ~ stage ~ '_model'] }}" class="min-w-0 w-full bg-slate-950 border border-slate-700 rounded p-2 text-slate-200">
+                    <div id="model-warning-task-{{ stage }}" role="status" aria-live="polite" class="min-h-[16px] text-xs text-amber-400 break-words"></div>
+                    </div>
+                </div>
+                {% endfor %}
+                <button id="save-ai-routing" class="min-h-[36px] px-3 rounded bg-emerald-700 text-white">Save Routing</button>
+            </form>
+            <div class="flex flex-wrap gap-2">
+            {% for preset, label in [('local','100% Free / Local'),('hybrid','Cost-Optimized Hybrid'),('cloud','Max Quality Cloud')] %}
+                <button id="preset-{{ preset }}" type="button" hx-post="/api/settings/ai/preset" hx-vals='{"preset":"{{ preset }}"}' hx-target="#ai-routing-controls" hx-swap="outerHTML" class="min-h-[36px] px-3 rounded border border-slate-600 text-sm text-slate-200">{{ label }}</button>
+            {% endfor %}
+            </div>
+            <div id="ai-routing-feedback" aria-live="polite" class="min-h-[24px] text-sm text-slate-200 break-words">{{ routing_message|default('') }}</div>
+        </div>
+        {% endblock %}
+        <span id="model-save-warning" aria-live="polite" class="block text-xs text-amber-400 break-words"></span>
+        <div class="border-t border-slate-700 pt-3 text-sm text-slate-300">ChromaDB embeddings: Ollama / nomic-embed-text / Local / zero-token cost <span id="embedding-status" aria-live="polite">Unchecked</span>
+            <button type="button" hx-post="/api/settings/test-embeddings" hx-target="#embedding-status" hx-swap="outerHTML" hx-disabled-elt="this" class="min-h-[36px] px-3 border rounded">Test Local Embeddings</button>
+            <p id="embedding-hint" class="text-xs text-slate-300 break-words"></p>
+        </div>
+    </section>
+    {# Legacy single-provider UI is superseded by the owner vault above.
     <!-- Section 1: AI Provider Configurator -->
     <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -238,28 +309,28 @@
         </form>
     </div>
 
+    #}
     <!-- Section 1.5: AI Scraping & Intelligent Extraction Settings -->
     <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
                 <h3 class="text-sm font-semibold text-slate-200">AI-Assisted Scraping & Query Strategy</h3>
-                <p class="text-[11px] text-slate-500">Enable LLM-based Boolean search query generation and dynamic HTML/DOM job extraction.</p>
+                <p class="text-[11px] text-slate-500">LLM-based Boolean query generation is always on. Optionally let the AI extract a listing from StepStone pages when CSS parsing finds no cards.</p>
             </div>
-            <span class="text-xs px-2.5 py-1 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 font-mono">Active</span>
+            <span id="ai-scraping-badge" class="text-xs px-2.5 py-1 rounded border font-mono {% if use_ai_scraping %}bg-emerald-950 border-emerald-800 text-emerald-400{% else %}bg-slate-900 border-slate-700 text-slate-400{% endif %}">{% if use_ai_scraping %}AI extraction enabled{% else %}AI extraction disabled{% endif %}</span>
         </div>
+
+        <form id="ai-scraping-form" hx-post="/api/settings/ai-scraping" hx-trigger="change" hx-target="#ai-scraping-badge" hx-swap="outerHTML" class="text-xs text-slate-300 space-y-2">
+            <label class="flex items-start space-x-2 cursor-pointer">
+                <input type="checkbox" name="use_ai_scraping" value="true" {% if use_ai_scraping %}checked{% endif %} class="mt-0.5 rounded bg-slate-950 text-emerald-500 focus:ring-0">
+                <span><strong>Use AI extraction fallback (StepStone):</strong> when no result cards parse, send the cleaned page to your configured scraping model. Spam and non-job pages are discarded; if the model is unavailable the scrape task fails visibly instead of returning guessed jobs.</span>
+            </label>
+        </form>
 
         <div class="text-xs text-slate-300 space-y-2">
             <div class="flex items-start space-x-2">
                 <span class="text-emerald-400 font-bold">✓</span>
                 <span><strong>AI Query Strategist:</strong> Formulates multi-platform Boolean search strings pairing candidate target roles and active skills.</span>
-            </div>
-            <div class="flex items-start space-x-2">
-                <span class="text-emerald-400 font-bold">✓</span>
-                <span><strong>Dynamic AI DOM Extractor:</strong> Extracts salary ranges, remote flexibility, and required tech stacks from unstructured web pages without brittle CSS selectors.</span>
-            </div>
-            <div class="flex items-start space-x-2">
-                <span class="text-emerald-400 font-bold">✓</span>
-                <span><strong>Spam & Promotional Filter:</strong> Automatically identifies and discards non-job ad listings before SQLite ingestion.</span>
             </div>
         </div>
     </div>
@@ -399,6 +470,93 @@
             </div>
         </form>
     </div>
+    
+    <!-- Section 1.90: Scraper Target Settings -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Automated Scraper Limits</h3>
+                <p class="text-[11px] text-slate-500">Configure how many results Jobot should extract per platform during discovery runs.</p>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded bg-amber-950 border border-amber-800 text-amber-300 font-mono">Limits</span>
+        </div>
+
+        <form id="scraper-settings-form" hx-post="/api/settings/scraper" hx-target="#scraper-save-feedback" class="space-y-4 text-xs">
+            <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="font-semibold text-slate-200">Max Results Wanted per Scrape</label>
+                    <span id="badge-scraper-results" class="font-mono text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/80">{{ scraper_results_wanted }}</span>
+                </div>
+                <p class="text-[10px] text-slate-400 leading-normal">Limit the maximum number of job listings fetched from each platform (higher limits increase run time).</p>
+                <input type="range" name="scraper_results_wanted" min="10" max="250" step="10" value="{{ scraper_results_wanted }}" 
+                       oninput="document.getElementById('badge-scraper-results').innerText = this.value"
+                       class="w-full accent-amber-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+            </div>
+
+            <!-- Save Scraper Settings -->
+            <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                <p class="text-[10px] text-slate-500">Note: Locations and Work Type are automatically fetched from your Candidate Profile config.</p>
+                <div class="flex items-center space-x-3 shrink-0">
+                    <div id="scraper-save-feedback"></div>
+                    <button type="submit" 
+                            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition shadow-md shadow-emerald-600/20 active:scale-95">
+                        Save Limits
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Section 1.95: Parallel Execution & Worker Concurrency Settings -->
+    <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Parallel Scraping & Concurrent AI Scoring Engine</h3>
+                <p class="text-[11px] text-slate-500">Configure parallel background worker limits for simultaneous multi-source scraping and concurrent batch AI fit evaluations.</p>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded bg-indigo-950 border border-indigo-800 text-indigo-300 font-mono">Parallel Async</span>
+        </div>
+
+        <form id="concurrency-settings-form" hx-post="/api/settings/concurrency" hx-target="#concurrency-save-feedback" class="space-y-4 text-xs">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Max Concurrent Scrapers Slider -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">1. Max Concurrent Scraping Queries</label>
+                        <span id="badge-concurrency-scrapers" class="font-mono text-sky-400 font-bold bg-sky-950/80 px-2 py-0.5 rounded border border-sky-800/80">{{ concurrency_max_scrapers }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Simultaneous search queries executed across LinkedIn, Google Jobs, and StepStone in parallel.</p>
+                    <input type="range" name="concurrency_max_scrapers" min="1" max="5" value="{{ concurrency_max_scrapers }}" 
+                           oninput="document.getElementById('badge-concurrency-scrapers').innerText = this.value"
+                           class="w-full accent-sky-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Max Concurrent AI Evaluators Slider -->
+                <div class="bg-slate-900/60 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="font-semibold text-slate-200">2. Max Concurrent AI Job Evaluators</label>
+                        <span id="badge-concurrency-evaluators" class="font-mono text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/80">{{ concurrency_max_evaluators }}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-normal">Simultaneous LLM scoring evaluations for newly scraped jobs. (Lower for low-VRAM GPUs, higher for Cloud APIs).</p>
+                    <input type="range" name="concurrency_max_evaluators" min="1" max="8" value="{{ concurrency_max_evaluators }}" 
+                           oninput="document.getElementById('badge-concurrency-evaluators').innerText = this.value"
+                           class="w-full accent-emerald-500 bg-slate-950 h-1.5 rounded-lg cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Save Concurrency Actions -->
+            <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                <p class="text-[10px] text-slate-500">All target job boards (LinkedIn, Google Jobs, StepStone) are extracted concurrently in parallel threads.</p>
+                <div class="flex items-center space-x-3 shrink-0">
+                    <div id="concurrency-save-feedback"></div>
+                    <button type="submit" 
+                            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition shadow-md shadow-emerald-600/20 active:scale-95">
+                        Save Concurrency Limits
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
 
     <!-- Section 2: Blacklist & Pre-Filtering Rules -->
     <div class="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
@@ -429,6 +587,7 @@
                     <div class="flex items-center space-x-2.5">
                         <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">{{ r.rule_type }}</span>
                         <span class="font-medium text-slate-200 font-mono">{{ r.pattern }}</span>
+                        {% if not r.is_active %}<span class="text-[10px] text-slate-500">(inactive / dismissed)</span>{% endif %}
                     </div>
                     <button hx-delete="/api/settings/rules/{{ r.id }}" hx-target="#view-container" 
                             class="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded hover:bg-rose-950/40 transition">
@@ -441,9 +600,21 @@
             {% endif %}
         </div>
     </div>
+
+    <div id="suggestions-panel" hx-get="/api/suggestions/panel" hx-trigger="load" hx-swap="outerHTML"></div>
 </div>
 
 <script>
+    // Client-only check against the bound datalist; textContent keeps remote IDs inert and Save is never blocked.
+    function jobotModelWarn(input, slotId) {
+        var slot = document.getElementById(slotId);
+        if (!slot) { return; }
+        var list = document.getElementById(input.getAttribute('list'));
+        var ids = list ? Array.prototype.map.call(list.options, function (o) { return o.value; }) : [];
+        var value = input.value.trim();
+        slot.textContent = (ids.length && value && ids.indexOf(value) === -1)
+            ? '\u26a0 Not in provider list. You can still save; generation may fail.' : '';
+    }
     function toggleAIFields(provider) {
         if (provider === 'ollama') {
             document.getElementById('ollama-fields').classList.remove('hidden');

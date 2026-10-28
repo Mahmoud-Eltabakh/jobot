@@ -64,7 +64,18 @@
         </div>
 
         <!-- Scrollable Body Content -->
-        <div class="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+        <div class="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar min-w-0"
+             hx-on::before-swap="if(event.detail.xhr.status >= 400 && event.detail.xhr.status < 600) { event.detail.shouldSwap = true; event.detail.isError = false; }">
+            {% if failed_task %}
+            <div role="alert" class="p-3 border border-rose-700 rounded text-sm text-rose-300 space-y-2" style="overflow-wrap:anywhere">
+                <p>Evaluation failed. {{ (failed_task.error_message or 'Provider unavailable.')[:500] }}</p>
+                <div class="flex flex-wrap gap-2">
+                    <button hx-post="/api/settings/ai/preset" hx-vals='{"preset":"local"}' hx-target="#inspector-routing-feedback" class="min-h-[36px] px-3 border rounded">Switch to Local Ollama</button>
+                    <button hx-post="/web/queue/tasks/{{ failed_task.id }}/retry" hx-target="#inspector-routing-feedback" class="min-h-[36px] px-3 border rounded">Retry</button>
+                </div>
+                <div id="inspector-routing-feedback" aria-live="polite"></div>
+            </div>
+            {% endif %}
             
             <!-- Tab 1: Overview & Match -->
             <div id="tab-content-overview" class="space-y-6">
@@ -160,7 +171,7 @@
                     </div>
 
                     <!-- Generate Generator Options -->
-                    <form hx-post="/web/job/{{ job.id }}/cover-letter/generate" 
+                    <form id="cover-letter-options-{{ job.id }}" hx-post="/web/job/{{ job.id }}/cover-letter/generate" 
                           hx-target="#cover-letter-container"
                           hx-indicator="#cover-letter-spinner"
                           class="space-y-3 pt-2 text-xs">
@@ -179,6 +190,9 @@
                                 <span>Generate Cover Letter</span>
                             </button>
                         </div>
+                        <label for="cover-letter-instructions-{{ job.id }}" class="block text-slate-400">Custom Instructions</label>
+                        <textarea id="cover-letter-instructions-{{ job.id }}" name="custom_instructions" rows="2"
+                                  class="w-full bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded p-1.5"></textarea>
                     </form>
                 </div>
 

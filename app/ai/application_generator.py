@@ -1,11 +1,26 @@
-"""AI Application Generator: Tailored Cover Letters & Resume Bullet Points."""
+"""Generate owned application text without synthetic outage replacements.
+
+Cover letters and resume bullets use the independent applying assignment.
+The job/profile owner is resolved before any provider request is made.
+Contradictory owned records are rejected even with explicit client injection.
+Legacy positional tone, instructions and generation-client arguments remain.
+Existing prompts, candidate/job truncation and plain-text mode are preserved.
+An injected client remains responsible for selected generation transport only.
+Empty output is an explicit invalid response, not material ready to save.
+Typed provider errors preserve safe provider/model/status metadata for callers.
+Unexpected generation failures are sanitized without raw payload logging.
+No template cover letter, fabricated achievement or alternate model is used.
+Generation returns in-memory content; persistence is a separate owner action.
+REST callers save only after a complete successful generation response.
+Human review of facts and tone remains necessary before using generated text.
+"""
 
 import json
 import logging
 
 from sqlmodel import Session, select
 
-from app.ai.client import BaseAIClient, get_ai_client
+from app.ai.client import AIProviderError, BaseAIClient, _provider_error, _validated_content, get_ai_client
 from app.db.models import ApplicationMaterial, Job, UserProfile, utc_now
 
 logger = logging.getLogger("jobot.ai.application_generator")
@@ -48,6 +63,18 @@ Format the output cleanly in Markdown.
 class ApplicationGenerator:
     """Generates tailored cover letters and resume points using AI LLM."""
 
+    @staticmethod
+    def _generation_owner(job: Job, user_profile: UserProfile) -> int | None:
+        """Reject contradictory owners even when a client is explicitly injected.
+
+        Unsaved profiles may lack an owner; in that case the owned job is
+        authoritative. Legacy unowned records retain installation behavior,
+        but owned generation never borrows the installation's credentials.
+        """
+        if job.user_id is not None and user_profile.user_id is not None and job.user_id != user_profile.user_id:
+            raise AIProviderError("ollama", "", "configuration")
+        return job.user_id if job.user_id is not None else user_profile.user_id
+
     @classmethod
     async def generate_cover_letter(
         cls,
@@ -57,9 +84,18 @@ class ApplicationGenerator:
         custom_instructions: str | None = None,
         ai_client: BaseAIClient | None = None,
     ) -> str:
-        """Generate a tailored cover letter for a specific job posting."""
+        """Generate real content using the owner's applying configuration.
+
+        Tone selects the established system prompt, not the provider/model.
+        Custom instructions remain in the user prompt with candidate details.
+        An owned job is authoritative when an unsaved profile lacks an owner.
+        Error propagation is deliberate: callers must not save a template or
+        report success after quota, outage, invalid or empty provider output.
+        This method itself performs no persistent material or profile writes.
+        """
         system_prompt = COVER_LETTER_SYSTEM_PROMPTS.get(tone, COVER_LETTER_SYSTEM_PROMPTS["professional"])
-        client = ai_client or get_ai_client()
+        owner = cls._generation_owner(job, user_profile)
+        client = ai_client or get_ai_client(user_id=owner, task_type="applying")
 
         skills = json.loads(user_profile.skills_json or "[]")
         target_titles = json.loads(user_profile.target_titles_json or "[]")
@@ -96,10 +132,11 @@ Please generate a compelling, tailored cover letter. Do not include placeholder 
                 system_prompt=system_prompt,
                 json_mode=False,
             )
-            return content.strip()
+            return _validated_content(getattr(client, "provider", "ollama"), getattr(client, "model", ""), content, False).strip()
+        except AIProviderError:
+            raise
         except Exception as err:
-            logger.warning("Cover letter generation failed (%s), returning template fallback", err)
-            return cls._fallback_cover_letter(job, user_profile, tone)
+            raise _provider_error(getattr(client, "provider", "ollama"), getattr(client, "model", ""), err) from None
 
     @classmethod
     async def generate_tailored_resume_points(
@@ -108,8 +145,14 @@ Please generate a compelling, tailored cover letter. Do not include placeholder 
         user_profile: UserProfile,
         ai_client: BaseAIClient | None = None,
     ) -> str:
-        """Generate ATS-optimized accomplishment bullet points aligned with the target job."""
-        client = ai_client or get_ai_client()
+        """Generate ATS bullets through the same owned applying boundary.
+
+        Preserve the existing resume prompt and plain-text Markdown contract.
+        No fallback invents achievements when the selected service fails.
+        Persistence remains separate and can occur only after this returns.
+        """
+        owner = cls._generation_owner(job, user_profile)
+        client = ai_client or get_ai_client(user_id=owner, task_type="applying")
         skills = json.loads(user_profile.skills_json or "[]")
 
         prompt = f"""Target Position: {job.title} at {job.company}
@@ -133,10 +176,11 @@ Generate tailored resume accomplishment bullet points and ATS keyword alignment.
                 system_prompt=RESUME_TAILORING_SYSTEM_PROMPT,
                 json_mode=False,
             )
-            return content.strip()
+            return _validated_content(getattr(client, "provider", "ollama"), getattr(client, "model", ""), content, False).strip()
+        except AIProviderError:
+            raise
         except Exception as err:
-            logger.warning("Resume tailoring generation failed (%s), returning fallback", err)
-            return cls._fallback_resume_points(job, user_profile)
+            raise _provider_error(getattr(client, "provider", "ollama"), getattr(client, "model", ""), err) from None
 
     @classmethod
     def save_material(
@@ -148,7 +192,12 @@ Generate tailored resume accomplishment bullet points and ATS keyword alignment.
         user_id: int,
         tone: str = "professional",
     ) -> ApplicationMaterial:
-        """Persist application material inside an authenticated ownership boundary."""
+        """Persist material inside the supplied authenticated ownership boundary.
+
+        Existing materials are matched by owner, job and material type.
+        Generation callers must reach this method only after successful output;
+        provider failures leave both old content and timestamps unchanged.
+        """
         existing = session.exec(
             select(ApplicationMaterial).where(
                 ApplicationMaterial.job_id == job_id,
@@ -179,45 +228,3 @@ Generate tailored resume accomplishment bullet points and ATS keyword alignment.
         session.commit()
         session.refresh(material)
         return material
-
-    @classmethod
-    def _fallback_cover_letter(cls, job: Job, user_profile: UserProfile, tone: str) -> str:
-        """Fallback cover letter template when AI provider is offline."""
-        skills = json.loads(user_profile.skills_json or "[]")
-        top_skills = ", ".join(skills[:4]) if skills else "modern software engineering practices"
-
-        return f"""# Application for {job.title}
-
-Dear Hiring Team at {job.company},
-
-I am writing to express my enthusiastic interest in the **{job.title}** position. With over {user_profile.experience_years} years of professional experience and core competencies in **{top_skills}**, I am confident in my ability to immediately contribute to {job.company}'s engineering objectives.
-
-In my recent projects, I have specialized in architecting reliable, scalable solutions while collaborating with cross-functional teams. Reviewing the job requirements for this role, my background directly aligns with your need for strong technical delivery and problem-solving.
-
-I would welcome the opportunity to discuss how my skill set and enthusiasm can support {job.company}'s ongoing success. Thank you for your time and consideration.
-
-Sincerely,  
-**{user_profile.full_name}**  
-{user_profile.headline or ''}
-"""
-
-    @classmethod
-    def _fallback_resume_points(cls, job: Job, user_profile: UserProfile) -> str:
-        """Fallback tailored resume bullet points."""
-        skills = json.loads(user_profile.skills_json or "[]")
-        skill_1 = skills[0] if len(skills) > 0 else "Python"
-        skill_2 = skills[1] if len(skills) > 1 else "FastAPI"
-
-        return f"""### Tailored Resume Bullets for {job.title} at {job.company}
-
-- **Architected and Deployed Scalable Services**: Designed end-to-end backend microservices utilizing **{skill_1}** and **{skill_2}**, improving application throughput and reliability by 35%.
-- **Automated Data Pipelines & Scraping Workflows**: Engineered automated data ingestion pipelines ensuring sub-second retrieval times and high availability.
-- **Cross-Functional Collaboration**: Partnered with product and infrastructure engineers to streamline delivery pipelines using **Docker** and modern CI/CD practices.
-
-### ATS Keyword Alignment
-| Keyword / Skill | Status in Profile | Match Level |
-| :--- | :--- | :--- |
-| {skill_1} | Verified in Profile | Strong Match |
-| {skill_2} | Verified in Profile | Strong Match |
-| System Architecture | Active Competency | High |
-"""

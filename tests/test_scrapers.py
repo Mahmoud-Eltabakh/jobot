@@ -5,7 +5,23 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from app.scrapers.jobspy_scraper import JobSpyScraper
+from app.scrapers.jobspy_scraper import JobSpyScraper, resolve_jobspy_country
+
+
+@pytest.mark.parametrize(
+    ("location", "explicit", "expected"),
+    [
+        ("", None, "usa"),
+        (None, None, "usa"),
+        ("Germany", None, "Germany"),
+        ("Berlin, Germany", None, "Germany"),
+        ("Remote", None, "usa"),
+        ("Berlin", "germany", "germany"),
+    ],
+)
+def test_resolve_jobspy_country_never_returns_invalid(location, explicit, expected) -> None:
+    """Blank or city-style locations must map to a country JobSpy accepts."""
+    assert resolve_jobspy_country(location, explicit) == expected
 
 
 @pytest.mark.asyncio
@@ -44,7 +60,11 @@ async def test_jobspy_scraper_mapping() -> None:
 
     scraper = JobSpyScraper()
 
-    with patch("app.scrapers.jobspy_scraper.scrape_jobs", return_value=mock_df):
+    def mock_scrape_jobs(site_name, **kwargs):
+        # Return only the rows matching the requested site
+        return mock_df[mock_df["site"].isin(site_name)]
+
+    with patch("app.scrapers.jobspy_scraper.scrape_jobs", side_effect=mock_scrape_jobs):
         jobs = await scraper.scrape(
             search_term="Python",
             location="Germany",

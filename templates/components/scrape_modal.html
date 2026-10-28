@@ -1,6 +1,6 @@
 <!-- Scrape Discovery Mode Modal Popup -->
 <div id="scrape-modal-backdrop" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b border-slate-800 pb-4">
             <div class="flex items-center space-x-3">
@@ -9,7 +9,7 @@
                 </div>
                 <div>
                     <h3 class="text-base font-bold text-white">Start Job Scraping Discovery</h3>
-                    <p class="text-xs text-slate-400">Choose how Jobot should run this scraping cycle:</p>
+                    <p class="text-xs text-slate-400">Customize locations, work type, and target platforms:</p>
                 </div>
             </div>
             <button type="button" onclick="document.getElementById('modal-container').innerHTML = ''" class="text-slate-500 hover:text-slate-300 transition">
@@ -17,10 +17,83 @@
             </button>
         </div>
 
+        <!-- Search Parameters Form (Read from UI Profile & Configurable) -->
+        <form id="scrape-modal-params-form" class="space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 text-xs">
+                <div>
+                    <label class="block text-slate-400 font-medium mb-1 flex items-center justify-between">
+                        <span>Target Location(s)</span>
+                        <span class="text-[10px] text-emerald-400 font-mono">From Profile</span>
+                    </label>
+                    <input type="text" name="target_locations" value="{{ target_locations_str }}" 
+                           placeholder="e.g. Remote, Germany, Berlin" 
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 focus:border-emerald-500 font-medium text-xs">
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-medium mb-1 flex items-center justify-between">
+                        <span>Work Type / Model</span>
+                        <span class="text-[10px] text-sky-400 font-mono">From Profile</span>
+                    </label>
+                    <select name="work_preference" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 focus:border-emerald-500 font-medium text-xs">
+                        <option value="remote_first" {% if work_preference == 'remote_first' %}selected{% endif %}>Remote First (Preferred)</option>
+                        <option value="remote_only" {% if work_preference == 'remote_only' %}selected{% endif %}>Remote Only</option>
+                        <option value="hybrid" {% if work_preference == 'hybrid' %}selected{% endif %}>Hybrid</option>
+                        <option value="onsite" {% if work_preference == 'onsite' %}selected{% endif %}>On-site</option>
+                        <option value="any" {% if work_preference == 'any' %}selected{% endif %}>Any Work Model</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Target Platforms Selection -->
+            <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 text-xs space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="font-medium text-slate-300">Target Platforms (Parallel Scraping)</label>
+                    <div class="space-x-2 text-[10px]">
+                        <button type="button" onclick="document.querySelectorAll('.platform-cb').forEach(c => c.checked = true)" class="text-sky-400 hover:underline">Select All</button>
+                        <span class="text-slate-600">|</span>
+                        <button type="button" onclick="document.querySelectorAll('.platform-cb').forEach(c => c.checked = false)" class="text-slate-400 hover:underline">Clear</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                    <label class="flex items-center space-x-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                        <input type="checkbox" name="platforms" value="linkedin" checked class="platform-cb rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-200 font-medium">LinkedIn</span>
+                    </label>
+                    <label class="flex items-center space-x-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                        <input type="checkbox" name="platforms" value="google" checked class="platform-cb rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-200 font-medium">Google Jobs</span>
+                    </label>
+                    <label class="flex items-center space-x-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                        <input type="checkbox" name="platforms" value="stepstone" checked class="platform-cb rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-200 font-medium">StepStone</span>
+                    </label>
+                    <label class="flex items-center space-x-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                        <input type="checkbox" name="platforms" value="indeed" class="platform-cb rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-200 font-medium">Indeed</span>
+                    </label>
+                    <label class="flex items-center space-x-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                        <input type="checkbox" name="platforms" value="glassdoor" class="platform-cb rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-200 font-medium">Glassdoor</span>
+                    </label>
+                    <label class="flex items-center space-x-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                        <input type="checkbox" name="platforms" value="zip_recruiter" class="platform-cb rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-200 font-medium">ZipRecruiter</span>
+                    </label>
+                </div>
+
+                <div class="pt-1">
+                    <input type="text" name="custom_platforms" placeholder="Additional custom platforms (comma-separated)..."
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 font-mono text-[11px] focus:border-emerald-500">
+                </div>
+            </div>
+        </form>
+
         <!-- Options Choice Cards -->
         <div class="space-y-3 text-xs">
             <!-- Option 1: Fresh Start (Delete 'New Matches' & Re-Scrape) -->
             <button hx-post="/web/scrape/run?mode=fresh" 
+                    hx-include="#scrape-modal-params-form"
                     hx-target="#modal-container" 
                     hx-swap="innerHTML"
                     class="w-full text-left p-4 rounded-xl border border-rose-900/60 bg-rose-950/20 hover:bg-rose-950/50 hover:border-rose-700 transition space-y-1 group active:scale-98">
@@ -32,12 +105,13 @@
                     <span class="text-[10px] px-2 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-mono">Reset NEW</span>
                 </div>
                 <p class="text-[11px] text-slate-400 group-hover:text-slate-300 transition leading-relaxed">
-                    Deletes all current jobs in the <strong>NEW</strong> stage and starts scraping discovery from the beginning.
+                    Deletes current jobs in <strong>NEW</strong> stage and scrapes selected job boards with specified locations and work types in parallel.
                 </p>
             </button>
 
             <!-- Option 2: Search More (Incremental Search) -->
             <button hx-post="/web/scrape/run?mode=incremental" 
+                    hx-include="#scrape-modal-params-form"
                     hx-target="#modal-container" 
                     hx-swap="innerHTML"
                     class="w-full text-left p-4 rounded-xl border border-indigo-900/60 bg-indigo-950/20 hover:bg-indigo-950/50 hover:border-indigo-700 transition space-y-1 group active:scale-98">
@@ -49,7 +123,7 @@
                     <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-950 border border-indigo-800 text-indigo-300 font-mono">Incremental</span>
                 </div>
                 <p class="text-[11px] text-slate-400 group-hover:text-slate-300 transition leading-relaxed">
-                    Keeps all your existing job cards and enqueues search tasks to find additional new opportunities.
+                    Keeps all existing matches and runs parallel multi-source discovery across selected platforms.
                 </p>
             </button>
         </div>

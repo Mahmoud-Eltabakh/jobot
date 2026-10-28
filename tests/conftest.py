@@ -1,12 +1,7 @@
 """Shared pytest fixtures."""
 
-import os
-
-# Force all tests to run against an in-memory SQLite database
-# Must be set BEFORE importing any application modules that instantiate the engine
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-
 from collections.abc import Iterator
+from importlib import import_module
 from typing import Any
 
 import pytest
@@ -17,6 +12,42 @@ from app.db import database
 from app.main import app
 
 
+@pytest.fixture
+def provider_transport(monkeypatch):
+    """Intercept native HTTPX and the installed OpenAI SDK's actual backend.
+
+    The SDK may use httpx2 rather than httpx. Patch transport selection on
+    both classes before constructing adapters, including short-lived probes.
+    Unexpected requests must fail in the handler, never fall through to I/O.
+    """
+    import httpx
+    import openai
+
+    sdk_backend = next(base.__module__.partition(".")[0]
+                       for base in openai.DefaultAsyncHttpxClient.__mro__
+                       if base.__name__ == "AsyncClient")
+
+    def install(handler):
+        for module_name in {"httpx", sdk_backend}:
+            backend = import_module(module_name)
+
+            def respond(request, backend=backend):
+                result = handler(request)
+                if isinstance(result, httpx.Response):
+                    return backend.Response(result.status_code, headers=dict(result.headers), content=result.content)
+                return result
+
+            transport = backend.MockTransport(respond)
+
+            def select_transport(client, url, transport=transport):
+                assert client.follow_redirects is False
+                return transport
+
+            monkeypatch.setattr(backend.AsyncClient, "_transport_for_url", select_transport)
+
+    return install
+
+
 @pytest.fixture(autouse=True)
 def clean_database_tables() -> None:
     """Ensure clean table state before each test run to avoid unique constraint collisions."""
@@ -24,7 +55,8 @@ def clean_database_tables() -> None:
     with database.engine.begin() as conn:
         for table in reversed(SQLModel.metadata.sorted_tables):
             conn.execute(table.delete())
-    database.init_db()
+    with database.Session(database.engine) as session:
+        database.seed_default_settings(session)
 
 
 @pytest.fixture

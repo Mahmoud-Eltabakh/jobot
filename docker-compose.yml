@@ -24,6 +24,22 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    networks:
+      - jobot_net
+
+  # One-shot init: pull chat + embedding models into the ollama service.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: jobot-ollama-pull
+    restart: "no"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull llama3.1:8b && ollama pull nomic-embed-text"]
+    depends_on:
+      ollama:
+        condition: service_healthy
     networks:
       - jobot_net
 

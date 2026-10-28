@@ -1,17 +1,28 @@
-"""Background scheduler and end-to-end scraping pipeline orchestrator."""
+"""Coordinate scraping and scoring without conflating their AI assignments.
+
+The caller supplies the account boundary for profile, filter and job access.
+Each pipeline invocation resolves independent scraping and scoring clients.
+Explicit generation injection still applies to both stages for compatibility;
+embedding selection is owned separately by the evaluator's local resolver.
+The existing query fan-out and evaluation semaphore remain unchanged.
+Typed provider errors survive nested gather results instead of success stats.
+The running-state guard also unwinds on failure or cancellation.
+No collection migration, provider failover or concurrency redesign occurs here.
+"""
 
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, select
 
-from app.ai.client import BaseAIClient, get_ai_client
+from app.ai.client import AIProviderError, BaseAIClient, get_ai_client
 from app.ai.evaluator import JobEvaluator, extract_keywords_from_profile
 from app.core.config import get_settings
-from app.db.database import engine, get_app_setting, set_app_setting
+from app.db.database import engine, get_app_setting, get_user_setting, set_app_setting
 from app.db.models import SearchConfig, UserProfile, utc_now
 from app.db.ownership import get_user_profile
 from app.scrapers.base import ScrapedJob
@@ -34,6 +45,22 @@ class ScraperPipeline:
     def is_running(cls) -> bool:
         """Check if pipeline is currently executing."""
         return cls._is_running
+
+    @classmethod
+    @asynccontextmanager
+    async def _execution_guard(cls):
+        """Release the running state on errors and cancellation, not only success.
+
+        Acquire the existing lock before advertising an active invocation.
+        Cleanup belongs to this context even if client resolution fails.
+        A later discovery run must not inherit a stale busy indicator.
+        """
+        async with cls._lock:
+            cls._is_running = True
+            try:
+                yield
+            finally:
+                cls._is_running = False
 
     @classmethod
     def build_profile_search_queries(
@@ -79,7 +106,7 @@ class ScraperPipeline:
 
                     # 2. Target title + active skills combinations (without restriction)
                     for skill in active_skills:
-                        if skill and skill.strip():
+                        if skill and skill.strip() and skill.strip().lower() not in primary_title.lower():
                             combo_kw = f"{primary_title.strip()} {skill.strip()}".strip()
                             if combo_kw not in [q[1] for q in queries]:
                                 queries.append(("all", combo_kw, loc))
@@ -90,6 +117,8 @@ class ScraperPipeline:
                         if sec_title.strip() not in [q[1] for q in queries]:
                             queries.append(("all", sec_title.strip(), loc))
                         for skill in active_skills:
+                            if not skill.strip() or skill.strip().lower() in sec_title.lower():
+                                continue
                             combo_sec = f"{sec_title.strip()} {skill.strip()}".strip()
                             if combo_sec not in [q[1] for q in queries]:
                                 queries.append(("all", combo_sec, loc))
@@ -109,7 +138,10 @@ class ScraperPipeline:
         user_id: int | None = None,
     ) -> dict[str, Any]:
         """
-        Execute full end-to-end job discovery pipeline.
+        Execute discovery with independent owner-scoped generation stages.
+
+        Provider failure prevents success statistics, but does not roll back
+        raw jobs already ingested before the independent scoring stage.
         
         Steps:
           1. Determine search targets (SearchConfig or UserProfile skills/titles).
@@ -118,60 +150,96 @@ class ScraperPipeline:
           4. Run Pre-Filter pipeline to auto-reject blacklisted positions.
           5. Evaluate approved jobs with LLM (Fit Score & Breakdown).
         """
-        async with cls._lock:
+        async with cls._execution_guard():
             cls._is_running = True
             start_time = utc_now()
             logger.info("Starting ScraperPipeline execution at %s", start_time.isoformat())
 
-            client = ai_client or get_ai_client()
+            scraping_client = ai_client or get_ai_client(session, user_id, task_type="scraping")
+            scoring_client = ai_client or get_ai_client(session, user_id, task_type="scoring")
             scraped_jobs: list[ScrapedJob] = []
+
+            # Resolve candidate profile for location and work preference
+            profile = get_user_profile(session, user_id, decrypt=True) if user_id is not None else session.exec(select(UserProfile)).first()
+            work_pref = profile.work_preference if profile else "remote_first"
+            is_remote = work_pref in ("remote_first", "remote_only", "any", "remote")
+            use_ai_scraping = bool(user_id is not None and get_user_setting(session, user_id, "use_ai_scraping", False))
 
             # 1. Resolve search queries using AI Query Strategist
             if override_keywords:
-                search_queries = [("all", override_keywords.strip(), override_location or "Germany")]
+                search_queries = [("all", override_keywords.strip(), override_location or "")]
             else:
                 search_queries = await AIQueryStrategist.generate_search_queries(
                     session=session,
                     max_queries=None,
-                    ai_client=client,
+                    ai_client=scraping_client,
                     user_id=user_id,
+                    override_location=override_location,
                 )
             logger.info("Generated %d search query batches from AI Strategist & candidate profile", len(search_queries))
 
             # ==========================================
-            # STAGE 1: SCRAPE
+            # STAGE 1: PARALLEL MULTI-SOURCE SCRAPE
             # ==========================================
-            jobspy = JobSpyScraper()
-            stepstone = StepStoneScraper()
+            async def scrape_single_query_source(source_target: str, kw: str, loc: str) -> list[ScrapedJob]:
+                query_jobs: list[ScrapedJob] = []
+                sub_tasks = []
 
-            for source_target, kw, loc in search_queries:
-                try:
-                    if source_target in ("all", "linkedin", "google"):
-                        sites = ["linkedin", "google"] if source_target == "all" else [source_target]
-                        res_js = await jobspy.scrape(
+                if source_target in ("all", "linkedin", "google"):
+                    sites = ["linkedin", "google"] if source_target == "all" else [source_target]
+                    jobspy = JobSpyScraper(default_sites=sites)
+                    sub_tasks.append(
+                        jobspy.scrape(
                             search_term=kw,
                             location=loc,
                             results_wanted=results_wanted_per_source,
                             site_name=sites,
+                            is_remote=is_remote,
                         )
-                        scraped_jobs.extend(res_js)
-                except Exception as err:
-                    logger.warning("JobSpy scrape failed for '%s': %s", kw, err)
+                    )
 
-                try:
-                    if source_target in ("all", "stepstone"):
-                        res_ss = await stepstone.scrape(
+                if source_target in ("all", "stepstone"):
+                    stepstone = StepStoneScraper()
+                    extra = {"ai_client": scraping_client} if use_ai_scraping else {}
+                    sub_tasks.append(
+                        stepstone.scrape(
                             search_term=kw,
                             location=loc,
                             results_wanted=results_wanted_per_source,
+                            is_remote=is_remote,
+                            **extra,
                         )
-                        scraped_jobs.extend(res_ss)
-                except Exception as err:
-                    logger.warning("StepStone scrape failed for '%s': %s", kw, err)
+                    )
+
+                if sub_tasks:
+                    results = await asyncio.gather(*sub_tasks, return_exceptions=True)
+                    for res in results:
+                        if isinstance(res, AIProviderError):
+                            raise res
+                        if isinstance(res, list):
+                            query_jobs.extend(res)
+                        elif isinstance(res, Exception):
+                            logger.warning("Parallel query scrape failed for '%s': %s", kw, res)
+
+                return query_jobs
+
+            # Dispatch all search queries in parallel
+            query_tasks = [
+                scrape_single_query_source(source_target, kw, loc)
+                for source_target, kw, loc in search_queries
+            ]
+            query_results = await asyncio.gather(*query_tasks, return_exceptions=True)
+            for q_res in query_results:
+                if isinstance(q_res, AIProviderError):
+                    raise q_res
+                if isinstance(q_res, list):
+                    scraped_jobs.extend(q_res)
+                elif isinstance(q_res, Exception):
+                    logger.warning("Search query batch failed: %s", q_res)
 
             # Deduplicate & persist raw ingested records
             inserted_jobs, skipped_dups = save_scraped_jobs(scraped_jobs, session, user_id=user_id)
-            logger.info("Stage 1 (SCRAPE) complete: %d fetched, %d new inserted, %d duplicates skipped", len(scraped_jobs), len(inserted_jobs), skipped_dups)
+            logger.info("Stage 1 (PARALLEL SCRAPE) complete: %d fetched, %d new inserted, %d duplicates skipped", len(scraped_jobs), len(inserted_jobs), skipped_dups)
 
             # ==========================================
             # STAGE 2: FILTER
@@ -182,23 +250,39 @@ class ScraperPipeline:
             logger.info("Stage 2 (FILTER) complete: %d approved for scoring, %d blacklisted/filtered out", len(approved_for_ai), len(filtered_out))
 
             # ==========================================
-            # STAGE 3: SCORE
+            # STAGE 3: PARALLEL BATCH SCORE
             # ==========================================
-            evaluated_count = 0
-            for job in approved_for_ai:
-                if job.id is None:
-                    continue
-                try:
-                    await JobEvaluator.evaluate_and_update_job(
-                        job_id=job.id,
-                        session=session,
-                        ai_client=client,
-                        user_id=user_id,
-                    )
-                    evaluated_count += 1
-                except Exception as err:
-                    logger.warning("Failed AI evaluation for Job id=%d: %s", job.id, err)
-            logger.info("Stage 3 (SCORE) complete: %d jobs evaluated with actual profile skills", evaluated_count)
+            max_eval_concurrency = int(get_app_setting("concurrency_max_evaluators", default=3))
+            semaphore = asyncio.Semaphore(max_eval_concurrency)
+
+            async def evaluate_single_job_bounded(job_id: int) -> bool:
+                async with semaphore:
+                    try:
+                        res = await JobEvaluator.evaluate_and_update_job(
+                            job_id=job_id,
+                            session=session,
+                            ai_client=scoring_client,
+                            user_id=user_id,
+                        )
+                        return res is not None
+                    except AIProviderError:
+                        raise
+                    except Exception as err:
+                        logger.warning("Failed AI evaluation for Job id=%d: %s", job_id, err)
+                        return False
+
+            eval_tasks = [
+                evaluate_single_job_bounded(job.id)
+                for job in approved_for_ai
+                if job.id is not None
+            ]
+
+            eval_results = await asyncio.gather(*eval_tasks, return_exceptions=True)
+            for result in eval_results:
+                if isinstance(result, AIProviderError):
+                    raise result
+            evaluated_count = sum(1 for r in eval_results if r is True)
+            logger.info("Stage 3 (PARALLEL SCORE) complete: %d jobs evaluated with actual profile skills", evaluated_count)
 
             # ==========================================
             # STAGE 4: QUEUE / STATS LOGGING

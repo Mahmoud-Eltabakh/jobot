@@ -8,6 +8,8 @@ from urllib.parse import quote, urljoin
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
+from app.ai.client import AIProviderError, BaseAIClient
+from app.scrapers.ai_extractor import AIScraperExtractor
 from app.scrapers.base import BaseScraper, ScrapedJob
 
 logger = logging.getLogger("jobot.scrapers.stepstone")
@@ -121,19 +123,9 @@ class StepStoneScraper(BaseScraper):
             except Exception as card_err:
                 logger.debug("Failed parsing StepStone card: %s", card_err)
 
-        # AI-Assisted DOM Extraction Fallback if CSS parsing yielded 0 cards on rich detail/listing page
-        cleaned_text = html_content.strip()
-        if not scraped_jobs and len(cleaned_text) > 200 and re.search(r"experience|requirements|qualifications|tasks|salary|full-time|developer|engineer", cleaned_text, re.IGNORECASE):
-            from app.scrapers.ai_extractor import AIScraperExtractor
-            fallback_job = AIScraperExtractor._fallback_heuristic_extractor(
-                text=AIScraperExtractor.clean_html_to_markdown_text(html_content),
-                source_url=base_url,
-                source="stepstone",
-                default_title=search_term.strip() if (search_term and search_term.strip()) else None,
-            )
-            invalid_title_patterns = {"no jobs found", "keine jobs gefunden", "no results found", "404 not found", "error"}
-            if fallback_job and fallback_job.title.strip().lower() not in invalid_title_patterns:
-                scraped_jobs.append(fallback_job)
+        # Never synthesize a listing from page text; no parsable cards means no jobs.
+        if not scraped_jobs and html_content.strip():
+            logger.warning("StepStone page contained no parsable job cards; returning no jobs")
 
         return scraped_jobs
 
@@ -143,8 +135,13 @@ class StepStoneScraper(BaseScraper):
         location: str,
         results_wanted: int | None = None,
         is_remote: bool = False,
+        ai_client: BaseAIClient | None = None,
     ) -> list[ScrapedJob]:
-        """Crawl StepStone search results page using Playwright without artificial limits."""
+        """Crawl StepStone search results page using Playwright without artificial limits.
+
+        When ai_client is given (use_ai_scraping on) and no cards parse, the page
+        goes through AIScraperExtractor; provider failures propagate honestly.
+        """
         encoded_term = quote(search_term)
         encoded_loc = quote(location)
         search_url = f"{self.BASE_URL}/work/{encoded_term}-in-{encoded_loc}"
@@ -188,11 +185,19 @@ class StepStoneScraper(BaseScraper):
                         base_url=self.BASE_URL,
                         search_term=search_term,
                     )
+                    if not all_jobs and ai_client is not None:
+                        ai_job = await AIScraperExtractor.extract_from_html(
+                            content, source_url=page.url, source="stepstone", ai_client=ai_client,
+                        )
+                        if ai_job:
+                            all_jobs = [ai_job]
 
                 finally:
                     await context.close()
                     await browser.close()
 
+        except AIProviderError:
+            raise
         except Exception as err:
             logger.error("StepStone Playwright scraping encountered an error: %s", err, exc_info=True)
 

@@ -3,14 +3,15 @@
 import json
 import logging
 import time
+from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, func, select
 
-from app.db.database import get_app_setting, set_app_setting
-from app.db.models import ScrapeTask, utc_now
+from app.db.database import get_app_setting, get_user_setting, set_app_setting, set_user_setting
+from app.db.models import ScrapeTask, UserSetting, utc_now
 
 logger = logging.getLogger("jobot.queue.task_queue")
 
@@ -25,19 +26,60 @@ class TaskQueue:
     """Manages enqueueing, state transitions, claiming, stats, and controls for ScrapeTask items."""
 
     @classmethod
-    def is_paused(cls, session: Session) -> bool:
-        """Check if background worker queue processing is paused."""
+    def is_paused(cls, session: Session, user_id: int | None = None) -> bool:
+        """Check pause state: per-account when user_id is given, else the legacy global flag."""
+        if user_id is not None:
+            return bool(get_user_setting(session, user_id, "is_queue_paused", False))
         val = get_app_setting("is_queue_paused", False)
         return bool(val)
 
     @classmethod
-    def toggle_pause(cls, session: Session) -> bool:
-        """Toggle queue worker pause state."""
-        current = cls.is_paused(session)
-        new_state = not current
-        set_app_setting("is_queue_paused", new_state)
+    def toggle_pause(cls, session: Session, user_id: int | None = None) -> bool:
+        """Toggle pause state; with user_id only that account's tasks are held."""
+        new_state = not cls.is_paused(session, user_id)
+        if user_id is not None:
+            set_user_setting(session, user_id, "is_queue_paused", new_state)
+        else:
+            set_app_setting("is_queue_paused", new_state)
         logger.info("TaskQueue worker pause state changed to: %s", new_state)
         return new_state
+
+    @classmethod
+    def recover_stale_tasks(cls, session: Session, older_than_seconds: float = 0.0) -> int:
+        """Return stranded in_progress tasks to pending; returns the number recovered.
+
+        Called at worker start (nothing can be legitimately in flight yet) and
+        optionally with a lease age to reclaim claims whose worker died.
+        """
+        stmt = update(ScrapeTask).where(ScrapeTask.status == "in_progress")
+        if older_than_seconds > 0:
+            stmt = stmt.where(ScrapeTask.updated_at < utc_now() - timedelta(seconds=older_than_seconds))
+        result = session.exec(stmt.values(status="pending", updated_at=utc_now()))
+        session.commit()
+        if result.rowcount:
+            logger.warning("Recovered %d stranded in_progress tasks", result.rowcount)
+        return result.rowcount or 0
+
+    @classmethod
+    def touch_task(cls, session: Session, task_id: int) -> bool:
+        """Heartbeat: refresh an in_progress task's lease timestamp; False if it is no longer claimed."""
+        result = session.exec(
+            update(ScrapeTask)
+            .where(ScrapeTask.id == task_id, ScrapeTask.status == "in_progress")
+            .values(updated_at=utc_now())
+        )
+        session.commit()
+        return bool(result.rowcount)
+
+    @classmethod
+    def release_task(cls, session: Session, task_id: int) -> None:
+        """Put a claimed task back to pending without consuming a retry (shutdown path)."""
+        session.exec(
+            update(ScrapeTask)
+            .where(ScrapeTask.id == task_id, ScrapeTask.status == "in_progress")
+            .values(status="pending", updated_at=utc_now())
+        )
+        session.commit()
 
     @classmethod
     def enqueue(
@@ -79,10 +121,12 @@ class TaskQueue:
         return task
 
     @classmethod
-    def claim_next_task(cls, session: Session) -> ScrapeTask | None:
+    def claim_next_task(cls, session: Session, task_types: list[str] | None = None) -> ScrapeTask | None:
         """Claim the next available pending task atomically if queue is not paused.
 
-        Implements retry logic with exponential backoff to handle SQLite write contention (database is locked).
+        Filters by specific task_types when provided (e.g. ['scrape_query', 'full_discovery']
+        for scraping worker vs ['evaluate_job', 'feedback_tune'] for AI scoring worker).
+        Implements retry logic with exponential backoff to handle SQLite write contention.
         """
         if cls.is_paused(session):
             return None
@@ -92,11 +136,19 @@ class TaskQueue:
 
         for attempt in range(max_retries):
             try:
-                candidate = session.exec(
-                    select(ScrapeTask)
-                    .where(ScrapeTask.status == "pending")
-                    .order_by(ScrapeTask.created_at)
-                ).first()
+                stmt = select(ScrapeTask).where(ScrapeTask.status == "pending")
+                paused_users = session.exec(
+                    select(UserSetting.user_id).where(
+                        UserSetting.key == "is_queue_paused", UserSetting.value_json == "true",
+                    )
+                ).all()
+                if paused_users:
+                    stmt = stmt.where(or_(ScrapeTask.user_id.is_(None), ScrapeTask.user_id.not_in(paused_users)))
+                if task_types:
+                    stmt = stmt.where(ScrapeTask.task_type.in_(task_types))
+                stmt = stmt.order_by(ScrapeTask.created_at)
+
+                candidate = session.exec(stmt).first()
 
                 if candidate:
                     claimed_at = utc_now()
@@ -148,15 +200,17 @@ class TaskQueue:
         session: Session,
         task_id: int,
         error_message: str,
+        *,
+        terminal: bool = False,
     ) -> ScrapeTask | None:
-        """Mark a task as failed or requeue if retries remain."""
+        """Record failure atomically; terminal errors require explicit owner retry."""
         task = session.get(ScrapeTask, task_id)
         if task:
             task.retries += 1
             task.error_message = error_message[:1000]
             task.updated_at = utc_now()
 
-            if task.retries < task.max_retries:
+            if not terminal and task.retries < task.max_retries:
                 task.status = "pending"
                 logger.warning("Task id=%d failed (retry %d/%d): %s", task_id, task.retries, task.max_retries, error_message)
             else:
@@ -258,9 +312,18 @@ class TaskQueue:
 
     @classmethod
     def get_stats(cls, session: Session, user_id: int | None = None) -> dict[str, Any]:
-        """Return total counts of tasks grouped by status and worker state."""
+        """Return total counts of tasks grouped by status and concurrent worker state."""
         def count_status(status: str) -> int:
             stmt = select(func.count(ScrapeTask.id)).where(ScrapeTask.status == status)
+            if user_id is not None:
+                stmt = stmt.where(ScrapeTask.user_id == user_id)
+            return session.exec(stmt).one() or 0
+
+        def count_active_by_types(task_types: tuple[str, ...]) -> int:
+            stmt = select(func.count(ScrapeTask.id)).where(
+                ScrapeTask.status == "in_progress",
+                ScrapeTask.task_type.in_(task_types),
+            )
             if user_id is not None:
                 stmt = stmt.where(ScrapeTask.user_id == user_id)
             return session.exec(stmt).one() or 0
@@ -269,7 +332,16 @@ class TaskQueue:
         in_progress = count_status("in_progress")
         completed = count_status("completed")
         failed = count_status("failed")
-        paused = cls.is_paused(session)
+        paused = cls.is_paused(session, user_id)
+
+        # Count active tasks per worker pool
+        active_scrapers = count_active_by_types(("scrape_query", "full_discovery"))
+        active_evaluators = count_active_by_types(("evaluate_job", "feedback_tune"))
+
+        # Concurrency limits from settings
+        max_scrapers = int(get_app_setting("concurrency_max_scrapers", default=2))
+        max_evaluators = int(get_app_setting("concurrency_max_evaluators", default=3))
+
         return {
             "pending": pending or 0,
             "in_progress": in_progress or 0,
@@ -277,4 +349,8 @@ class TaskQueue:
             "failed": failed or 0,
             "total": (pending or 0) + (in_progress or 0) + (completed or 0) + (failed or 0),
             "is_paused": paused,
+            "active_scrapers": active_scrapers,
+            "active_evaluators": active_evaluators,
+            "concurrency_max_scrapers": max_scrapers,
+            "concurrency_max_evaluators": max_evaluators,
         }

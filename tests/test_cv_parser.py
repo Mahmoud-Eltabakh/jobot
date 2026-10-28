@@ -24,7 +24,7 @@ def setup_db() -> None:
 def create_minimal_pdf_bytes(text: str) -> bytes:
     """Helper to generate valid PDF binary in memory with text."""
     writer = pypdf.PdfWriter()
-    page = writer.add_blank_page(width=612, height=792)
+    writer.add_blank_page(width=612, height=792)
     # pypdf blank page is valid PDF
     out = io.BytesIO()
     writer.write(out)

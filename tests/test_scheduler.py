@@ -51,6 +51,7 @@ async def test_scraper_pipeline_full_run() -> None:
     with (
         patch("app.scrapers.jobspy_scraper.JobSpyScraper.scrape", new_callable=AsyncMock) as mock_js,
         patch("app.scrapers.stepstone.StepStoneScraper.scrape", new_callable=AsyncMock) as mock_ss,
+        patch("app.ai.embeddings.ProfileEmbedder.compute_semantic_similarity", new_callable=AsyncMock, return_value=0.5),
     ):
         mock_js.return_value = [mock_jobs[0]]
         mock_ss.return_value = [mock_jobs[1]]

@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from app.ai.client import get_ai_client
+from app.ai.client import AIProviderError, get_ai_client, get_embedding_client
 from app.ai.embeddings import ProfileEmbedder
 from app.ai.linkedin_analyzer import LinkedInProfileAnalyzer
 from app.ai.profile_extractor import ExtractedProfile, generate_candidate_bio
+from app.api.applications import _generation_failure
 from app.auth.dependencies import get_current_user
 from app.db.database import get_session
 from app.db.models import User, UserProfile, utc_now
@@ -111,6 +112,7 @@ async def update_profile(
     profile.active_search_skills_json = json.dumps(payload.active_search_skills or payload.skills)
     profile.linkedin_url = payload.linkedin_url
     profile.updated_at = utc_now()
+    history = json.loads(profile.experience_history_json or "[]")
 
     encrypt_profile(profile, current_user.id)
     session.add(profile)
@@ -131,15 +133,18 @@ async def update_profile(
             target_salary_min=payload.target_salary_min,
             work_preference=payload.work_preference,
             linkedin_url=payload.linkedin_url,
+            experience_history=history,
         )
         vector_store = get_vector_store()
-        ai_client = get_ai_client()
-        await ProfileEmbedder.embed_and_store_profile(extracted, vector_store, ai_client)
+        local = get_embedding_client(session=session, user_id=current_user.id)
+        await ProfileEmbedder.embed_and_store_profile(extracted, vector_store, embedding_client=local, session=session, user_id=current_user.id)
     except Exception as err:
-        logger.warning("Failed updating vector embeddings for profile: %s", err)
+        return {"status": "partial", "message": "Profile saved; local embeddings were not synchronized.",
+            "embeddings_synced": False, "profile_id": profile.id}
 
     return {
         "status": "ok",
+        "embeddings_synced": True,
         "message": "Profile updated and vector embeddings synchronized successfully.",
         "profile_id": profile.id,
     }
@@ -172,9 +177,10 @@ async def sync_linkedin_profile(
             "skills": json.loads(user_profile.skills_json or "[]"),
             "target_titles": json.loads(user_profile.target_titles_json or "[]"),
         }
-    except Exception as err:
-        logger.error("LinkedIn sync failed: %s", err)
-        raise HTTPException(status_code=500, detail=f"LinkedIn sync failed: {err!s}")
+    except AIProviderError as err:
+        raise _generation_failure(err) from None
+    except Exception:
+        raise HTTPException(status_code=500, detail="LinkedIn synchronization failed.") from None
 
 
 @router.post("/generate-bio", response_model=dict[str, Any])
@@ -197,8 +203,11 @@ async def generate_profile_bio_api(
         "cv_raw_text": profile.cv_raw_text,
         "bio": profile.bio,
     }
-    ai_client = get_ai_client()
-    new_bio = await generate_candidate_bio(cand_data, ai_client)
+    try:
+        ai_client = get_ai_client(session=session, user_id=current_user.id, task_type="scraping")
+        new_bio = await generate_candidate_bio(cand_data, ai_client)
+    except AIProviderError as err:
+        raise _generation_failure(err) from None
 
     profile.bio = new_bio
     profile.updated_at = utc_now()

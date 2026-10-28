@@ -1,6 +1,7 @@
 """Web UI endpoints serving Jinja2 templates and HTMX partial views."""
 
 import json
+from html import escape
 import logging
 from typing import Any
 
@@ -10,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, asc, desc, select
 
 from app.ai.application_generator import ApplicationGenerator
-from app.ai.client import get_ai_client
+from app.ai.client import AIProviderError, get_ai_client, get_embedding_client
 from app.ai.embeddings import ProfileEmbedder
 from app.ai.evaluator import JobEvaluator
 from app.ai.profile_extractor import ExtractedProfile, generate_candidate_bio
@@ -43,6 +44,51 @@ logger = logging.getLogger("jobot.web.routes")
 
 router = APIRouter(tags=["Web UI"])
 templates = Jinja2Templates(directory="templates")
+
+
+def provider_failure(error: AIProviderError, retry_url: str = "", retry_target: str = "this", *, retry_include: str = "") -> HTMLResponse:
+    """Keep remote bodies out of HTML and routing changes separate from retries."""
+    guidance = {"authentication": "Check the saved API key.", "quota": "Check provider billing or switch to local.",
+                "rate_limit": "Wait before retrying or switch to local.", "timeout": "Check connectivity before retrying."}
+    diagnostic = f"{error.provider[:32]} / {error.model[:200]} / {error.category[:32]} / {error.status_code or ''}: {error.message}"
+    include = f' hx-include="{escape(retry_include, quote=True)}"' if retry_include else ""
+    retry = (f'<button type="button" hx-post="{escape(retry_url, quote=True)}" hx-target="{escape(retry_target, quote=True)}"{include} class="min-h-[36px] px-3 border rounded">Retry</button>' if retry_url else "")
+    content = (f'<div role="alert" class="min-w-0 p-3 border border-rose-700 rounded text-sm text-rose-300 space-y-2" style="overflow-wrap:anywhere">'
+               f'<p>{escape(diagnostic)}</p><p>{guidance.get(error.category, "Check provider settings before retrying.")}</p>'
+               '<div class="flex flex-wrap gap-2"><button type="button" hx-post="/api/settings/ai/preset" hx-vals=\'{"preset":"local"}\' hx-target="next .local-routing-feedback" class="min-h-[36px] px-3 border rounded">Switch to Local Ollama</button>'
+               f'<span class="local-routing-feedback" aria-live="polite"></span>{retry}</div></div>')
+    return HTMLResponse(content, status_code=503 if error.provider == "ollama" else 502,
+                        headers={"HX-Reswap": "innerHTML"})
+
+
+async def _record_feedback(
+    session: Session,
+    job: Job,
+    status: str,
+    note_text: str | None,
+    user_id: int,
+    sentiment_override: str | None = None,
+) -> str | None:
+    """Record an owner-scoped feedback vector; return a user-visible warning on failure."""
+    from app.ai.feedback import FeedbackManager
+
+    # Skip unsignalled actions so ordinary moves do not call the embedding model.
+    signal = status in FeedbackManager.POSITIVE_STATUSES | FeedbackManager.NEGATIVE_STATUSES \
+        or sentiment_override in ("positive", "negative")
+    if not signal:
+        return None
+    try:
+        await FeedbackManager.record_job_feedback(
+            job_id=job.id, status=status, note_text=note_text, session=session,
+            vector_store=get_vector_store(), user_id=user_id, sentiment_override=sentiment_override,
+        )
+    except AIProviderError as err:
+        logger.warning("Feedback vector not recorded for job %s: %s", job.id, err.category)
+        return f"Saved, but learning feedback was not recorded ({err.category}). Check the local embedding model."
+    except Exception as err:
+        logger.warning("Feedback vector not recorded for job %s: %s", job.id, type(err).__name__)
+        return "Saved, but learning feedback was not recorded (vector store error)."
+    return None
 
 
 def apply_job_filters(
@@ -132,6 +178,7 @@ async def login_submit(
         key=COOKIE_NAME,
         value=session_obj.session_token,
         httponly=True,
+        secure=settings.env.lower() in {"production", "prod"},
         samesite="lax",
         max_age=7 * 24 * 3600,
     )
@@ -207,6 +254,7 @@ async def register_submit(
         key=COOKIE_NAME,
         value=session_obj.session_token,
         httponly=True,
+        secure=settings.env.lower() in {"production", "prod"},
         samesite="lax",
         max_age=7 * 24 * 3600,
     )
@@ -277,6 +325,21 @@ async def get_queue_status_component(
         request=request,
         name="components/queue_status.html",
         context={"stats": stats},
+    )
+
+
+@router.get("/web/components/system-alerts", response_class=HTMLResponse)
+async def get_system_alerts_component(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render actionable provider/queue alerts for the polled banner."""
+    from app.api.diagnostics import collect_system_alerts
+    return templates.TemplateResponse(
+        request=request,
+        name="components/system_alerts.html",
+        context={"alerts": collect_system_alerts(session, current_user.id)},
     )
 
 
@@ -364,7 +427,7 @@ async def toggle_queue_pause_web(
 ) -> HTMLResponse:
     """Toggle queue worker pause state and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
-    TaskQueue.toggle_pause(session)
+    TaskQueue.toggle_pause(session, current_user.id)
     return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
 
@@ -421,6 +484,8 @@ async def retry_individual_task_web(
 ) -> HTMLResponse:
     """Retry individual task and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
+    if not owned_by_id(session, ScrapeTask, task_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Task not found")
     TaskQueue.retry_task(session, task_id, current_user.id)
     return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
@@ -581,9 +646,16 @@ async def get_settings_view(
     tailscale_app_port = get_user_setting(session, current_user.id, "tailscale_app_port", settings.tailscale_app_port)
     tailscale_magic_dns = get_user_setting(session, current_user.id, "tailscale_magic_dns", settings.tailscale_magic_dns)
 
-    # Fetch available models if Ollama is accessible
-    from app.ai.client import OllamaAIClient
-    available_ollama_models = await OllamaAIClient.fetch_available_models(ollama_base_url)
+    # Concurrency limits
+    concurrency_max_scrapers = int(get_user_setting(session, current_user.id, "concurrency_max_scrapers", get_app_setting("concurrency_max_scrapers", settings.concurrency_max_scrapers)))
+    concurrency_max_evaluators = int(get_user_setting(session, current_user.id, "concurrency_max_evaluators", get_app_setting("concurrency_max_evaluators", settings.concurrency_max_evaluators)))
+
+    from app.api.settings import get_all_settings
+    safe_ai = get_all_settings(session, current_user)
+    available_ollama_models = []
+    
+    scraper_results_wanted = int(get_user_setting(session, current_user.id, "scraper_results_wanted", 50))
+    use_ai_scraping = bool(get_user_setting(session, current_user.id, "use_ai_scraping", False))
 
     return templates.TemplateResponse(
         request=request,
@@ -592,11 +664,15 @@ async def get_settings_view(
             "user_profile": user_profile,
             "rules": rules,
             "search_configs": search_configs,
+            "provider_configs": safe_ai["providers"],
+            "task_assignments": safe_ai,
             "ai_provider": ai_provider,
             "ollama_base_url": ollama_base_url,
             "ollama_model": ollama_model,
             "ollama_embed_model": ollama_embed_model,
             "available_ollama_models": available_ollama_models,
+            "scraper_results_wanted": scraper_results_wanted,
+            "use_ai_scraping": use_ai_scraping,
             "openai_base_url": openai_base_url,
             "openai_model": openai_model,
             "has_openai_api_key": has_openai_api_key,
@@ -609,6 +685,8 @@ async def get_settings_view(
             "weight_history_skills": weight_history_skills,
             "weight_education": weight_education,
             "weight_projects": weight_projects,
+            "concurrency_max_scrapers": concurrency_max_scrapers,
+            "concurrency_max_evaluators": concurrency_max_evaluators,
             "tailscale_enabled": tailscale_enabled,
             "tailscale_hostname": tailscale_hostname,
             "tailscale_ssh_user": tailscale_ssh_user,
@@ -664,6 +742,17 @@ async def get_job_inspector(
     ).first()
 
     statuses = [s.value for s in JobStatus]
+    failed_task = None
+    for candidate in session.exec(select(ScrapeTask).where(
+        ScrapeTask.user_id == current_user.id, ScrapeTask.task_type == "evaluate_job",
+        ScrapeTask.status == "failed",
+    ).order_by(desc(ScrapeTask.id))).all():
+        try:
+            if json.loads(candidate.payload_json).get("job_id") == job_id:
+                failed_task = candidate
+                break
+        except (ValueError, AttributeError):
+            continue
 
     return templates.TemplateResponse(
         request=request,
@@ -678,6 +767,7 @@ async def get_job_inspector(
             "cover_letter": cover_letter,
             "tailored_resume": tailored_resume,
             "statuses": statuses,
+            "failed_task": failed_task,
         },
     )
 
@@ -697,12 +787,15 @@ async def generate_cover_letter_view(
         raise HTTPException(status_code=404, detail="Job not found")
 
     user_profile = get_user_profile(session, current_user.id, decrypt=True) or UserProfile(user_id=current_user.id)
-    content = await ApplicationGenerator.generate_cover_letter(
-        job=job,
-        user_profile=user_profile,
-        tone=tone,
-        custom_instructions=custom_instructions,
-    )
+    try:
+        client = get_ai_client(session=session, user_id=current_user.id, task_type="applying")
+        content = await ApplicationGenerator.generate_cover_letter(
+            job=job, user_profile=user_profile, tone=tone,
+            custom_instructions=custom_instructions, ai_client=client,
+        )
+    except AIProviderError as error:
+        return provider_failure(error, f"/web/job/{job.id}/cover-letter/generate", "#cover-letter-container",
+                                retry_include=f"#cover-letter-options-{job.id}")
 
     ApplicationGenerator.save_material(
         session=session,
@@ -717,7 +810,7 @@ async def generate_cover_letter_view(
         f'<form hx-post="/web/job/{job.id}/materials/save" hx-swap="none" class="space-y-2">'
         f'<input type="hidden" name="material_type" value="cover_letter">'
         f'<textarea id="cover-letter-text" name="content_markdown" rows="14" '
-        f'class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-emerald-500 custom-scrollbar">{content}</textarea>'
+        f'class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-emerald-500 custom-scrollbar">{escape(content)}</textarea>'
         f'<div class="flex items-center justify-between pt-1">'
         f'<button type="button" onclick="copyText(\'cover-letter-text\', this)" '
         f'class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition flex items-center space-x-1.5">'
@@ -741,10 +834,11 @@ async def generate_tailored_resume_view(
         raise HTTPException(status_code=404, detail="Job not found")
 
     user_profile = get_user_profile(session, current_user.id, decrypt=True) or UserProfile(user_id=current_user.id)
-    content = await ApplicationGenerator.generate_tailored_resume_points(
-        job=job,
-        user_profile=user_profile,
-    )
+    try:
+        client = get_ai_client(session=session, user_id=current_user.id, task_type="applying")
+        content = await ApplicationGenerator.generate_tailored_resume_points(job=job, user_profile=user_profile, ai_client=client)
+    except AIProviderError as error:
+        return provider_failure(error, f"/web/job/{job.id}/tailor-resume/generate", "#tailored-resume-container")
 
     ApplicationGenerator.save_material(
         session=session,
@@ -759,7 +853,7 @@ async def generate_tailored_resume_view(
         f'<form hx-post="/web/job/{job.id}/materials/save" hx-swap="none" class="space-y-2">'
         f'<input type="hidden" name="material_type" value="tailored_resume">'
         f'<textarea id="tailored-resume-text" name="content_markdown" rows="14" '
-        f'class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-indigo-500 custom-scrollbar">{content}</textarea>'
+        f'class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-indigo-500 custom-scrollbar">{escape(content)}</textarea>'
         f'<div class="flex items-center justify-between pt-1">'
         f'<button type="button" onclick="copyText(\'tailored-resume-text\', this)" '
         f'class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition flex items-center space-x-1.5">'
@@ -821,10 +915,15 @@ async def update_job_status(
     session.commit()
     session.refresh(job)
 
+    warning = await _record_feedback(session, job, new_status, notes, current_user.id)
+    headers = {"HX-Trigger": "refreshView"}
+    if warning:
+        headers["HX-Trigger-After-Settle"] = json.dumps({"feedbackWarning": warning})
+
     # Return HTMX response with trigger to refresh views
     return HTMLResponse(
         f'<div id="card-{job.id}" hx-swap-oob="delete"></div>',
-        headers={"HX-Trigger": "refreshView"},
+        headers=headers,
     )
 
 
@@ -868,7 +967,7 @@ async def get_profile_view(
     projects_str = json.dumps(sorted_projects, indent=2) if sorted_projects else ""
     cv_raw_text = (user_profile.cv_raw_text or "") if user_profile else ""
     linkedin_raw_text = (user_profile.linkedin_raw_text or "") if user_profile else ""
-
+    has_linkedin_session = bool(user_profile and user_profile.linkedin_session_cookie)
     return templates.TemplateResponse(
         request=request,
         name="components/profile.html",
@@ -884,6 +983,7 @@ async def get_profile_view(
             "projects_str": projects_str,
             "cv_raw_text": cv_raw_text,
             "linkedin_raw_text": linkedin_raw_text,
+            "has_linkedin_session": has_linkedin_session,
             "error_message": error_message,
             "toast_message": toast_message,
         },
@@ -907,10 +1007,36 @@ async def update_profile_form(
     education_text: str | None = Form(None),
     projects_text: str | None = Form(None),
     cv_raw_text: str | None = Form(None),
+    linkedin_raw_text: str | None = Form(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Update user profile from web form and return refreshed profile view."""
+    # Parse history sections first so invalid JSON rejects the whole save
+    def _parse_section(text: str | None, label: str, line_key: str) -> list | None:
+        if text is None:
+            return None
+        txt = text.strip()
+        if txt.startswith("[") or txt.startswith("{"):
+            try:
+                data = json.loads(txt)
+            except ValueError:
+                raise ValueError(label) from None
+            if not isinstance(data, list) or not all(isinstance(x, dict) for x in data):
+                raise ValueError(label)
+            return data
+        return [{line_key: line.strip()} for line in txt.split("\n") if line.strip()]
+
+    try:
+        exp_data = _parse_section(experience_history_text, "Experience history", "description")
+        edu_data = _parse_section(education_text, "Education", "description")
+        project_data = _parse_section(projects_text, "Projects", "name")
+    except ValueError as bad:
+        return await get_profile_view(
+            request=request, session=session, current_user=current_user,
+            error_message=f"{bad} is not valid JSON (expected a list of objects). Nothing was saved.",
+        )
+
     titles_list = [t.strip() for t in target_titles.split(",") if t.strip()]
     locations_list = [l.strip() for l in target_locations.split(",") if l.strip()]
     skills_list = [s.strip() for s in skills.split(",") if s.strip()]
@@ -932,34 +1058,20 @@ async def update_profile_form(
     user_profile.skills_json = json.dumps(skills_list)
     user_profile.active_search_skills_json = json.dumps(active_skills_list)
 
-    if experience_history_text is not None:
-        try:
-            txt = experience_history_text.strip()
-            exp_data = json.loads(txt) if txt.startswith("[") else ([{"description": line.strip()} for line in txt.split("\n") if line.strip()] if txt else [])
-            user_profile.experience_history_json = json.dumps(exp_data)
-        except Exception:
-            pass
-
-    if education_text is not None:
-        try:
-            txt = education_text.strip()
-            edu_data = json.loads(txt) if txt.startswith("[") else ([{"description": line.strip()} for line in txt.split("\n") if line.strip()] if txt else [])
-            user_profile.education_json = json.dumps(edu_data)
-        except Exception:
-            pass
-
-    if projects_text is not None:
-        try:
-            txt = projects_text.strip()
-            project_data = json.loads(txt) if txt.startswith("[") else ([{"name": line.strip()} for line in txt.split("\n") if line.strip()] if txt else [])
-            user_profile.projects_json = json.dumps(project_data)
-        except Exception:
-            pass
+    if exp_data is not None:
+        user_profile.experience_history_json = json.dumps(exp_data)
+    if edu_data is not None:
+        user_profile.education_json = json.dumps(edu_data)
+    if project_data is not None:
+        user_profile.projects_json = json.dumps(project_data)
 
     if cv_raw_text is not None and cv_raw_text.strip():
         user_profile.cv_raw_text = cv_raw_text.strip()
+    if linkedin_raw_text is not None and linkedin_raw_text.strip():
+        user_profile.linkedin_raw_text = linkedin_raw_text.strip()
 
     user_profile.updated_at = utc_now()
+    history_for_vectors = json.loads(user_profile.experience_history_json or "[]")
 
     encrypt_profile(user_profile, current_user.id)
     session.add(user_profile)
@@ -980,12 +1092,16 @@ async def update_profile_form(
             target_salary_min=user_profile.target_salary_min,
             work_preference=user_profile.work_preference,
             linkedin_url=user_profile.linkedin_url,
+            experience_history=history_for_vectors,
+            education=[{k: str(v) for k, v in e.items()} for e in (edu_data or [])],
+            projects=project_data or [],
         )
         vector_store = get_vector_store()
-        ai_client = get_ai_client(session, current_user.id)
-        await ProfileEmbedder.embed_and_store_profile(extracted, vector_store, ai_client)
+        local = get_embedding_client(session=session, user_id=current_user.id)
+        await ProfileEmbedder.embed_and_store_profile(extracted, vector_store, embedding_client=local, session=session, user_id=current_user.id)
     except Exception as err:
-        logger.warning("Failed refreshing vector embeddings on profile save: %s", err)
+        return await get_profile_view(request=request, session=session, current_user=current_user,
+                                      error_message="Profile saved; local embeddings were not synchronized.")
 
     # Purge any jobs that do not match the updated candidate profile skills
     try:
@@ -1004,10 +1120,11 @@ async def rescore_and_filter_view(
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Re-evaluate and rescore all stored jobs against candidate profile and purge non-matches."""
-    ai_client = get_ai_client(session, current_user.id)
-    count = await JobEvaluator.rescore_all_jobs(
-        session=session, ai_client=ai_client, user_id=current_user.id
-    )
+    try:
+        ai_client = get_ai_client(session=session, user_id=current_user.id, task_type="scoring")
+        count = await JobEvaluator.rescore_all_jobs(session=session, ai_client=ai_client, user_id=current_user.id)
+    except AIProviderError as error:
+        return provider_failure(error)
     logger.info("Rescored and filtered %d jobs from UI action", count)
 
     return await get_profile_view(
@@ -1021,13 +1138,23 @@ async def rescore_and_filter_view(
 @router.get("/web/components/scrape-modal", response_class=HTMLResponse)
 async def get_scrape_modal_view(
     request: Request,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
-    """Render popup modal asking whether to start fresh or search more."""
+    """Render popup modal asking whether to start fresh or search more, prefilled with location and work type from UI profile."""
+    profile = get_user_profile(session, current_user.id, decrypt=True)
+    target_locations = json.loads(profile.target_locations_json or "[]") if profile else []
+    target_locations_str = ", ".join(target_locations) if target_locations else ""
+    work_preference = profile.work_preference if profile else "remote_first"
+
     return templates.TemplateResponse(
         request=request,
         name="components/scrape_modal.html",
-        context={},
+        context={
+            "user_profile": profile,
+            "target_locations_str": target_locations_str,
+            "work_preference": work_preference,
+        },
     )
 
 
@@ -1035,11 +1162,29 @@ async def get_scrape_modal_view(
 async def run_scrape_modal_action(
     request: Request,
     mode: str = Query("incremental"),
+    target_locations: str | None = Form(None),
+    work_preference: str | None = Form(None),
+    platforms: list[str] = Form(default=[]),
+    custom_platforms: str | None = Form(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
-    """Execute scrape discovery with option to clear new matches or search more."""
+    """Execute scrape discovery with option to clear new matches or search more, reading and persisting location, work type, and target platforms from UI."""
     from app.queue.task_queue import TaskQueue
+
+    profile = get_user_profile(session, current_user.id, decrypt=True)
+    if profile:
+        # Update target locations and work preference if modified in UI modal
+        if target_locations is not None:
+            locs_list = [l.strip() for l in target_locations.split(",") if l.strip()]
+            profile.target_locations_json = json.dumps(locs_list)
+        if work_preference is not None and work_preference.strip():
+            profile.work_preference = work_preference.strip()
+        profile.updated_at = utc_now()
+        from app.db.ownership import encrypt_profile
+        encrypt_profile(profile, current_user.id)
+        session.add(profile)
+        session.commit()
 
     cleared_count = 0
     if mode == "fresh":
@@ -1054,10 +1199,30 @@ async def run_scrape_modal_action(
         session.commit()
         logger.info("Cleared %d existing new/seen jobs for fresh discovery", cleared_count)
 
+    loc_val = target_locations.strip() if target_locations and target_locations.strip() else None
+    work_val = work_preference.strip() if work_preference and work_preference.strip() else None
+
+    # Collect selected and custom platforms
+    selected_platforms = list(platforms)
+    if custom_platforms and custom_platforms.strip():
+        for p in custom_platforms.split(","):
+            p_clean = p.strip().lower()
+            if p_clean and p_clean not in selected_platforms:
+                selected_platforms.append(p_clean)
+
+    if not selected_platforms:
+        selected_platforms = ["all"]
+
     TaskQueue.enqueue(
         session=session,
         task_type="full_discovery",
-        payload={"max_queries": 5, "mode": mode},
+        payload={
+            "max_queries": 5,
+            "mode": mode,
+            "location": loc_val,
+            "work_preference": work_val,
+            "platforms": selected_platforms,
+        },
         user_id=current_user.id,
     )
 
@@ -1107,8 +1272,11 @@ async def generate_profile_bio_web(
         "bio": profile.bio if profile else "",
     }
 
-    ai_client = get_ai_client(session, current_user.id)
-    generated_bio = await generate_candidate_bio(cand_data, ai_client)
+    try:
+        ai_client = get_ai_client(session=session, user_id=current_user.id, task_type="scraping")
+        generated_bio = await generate_candidate_bio(cand_data, ai_client)
+    except AIProviderError as error:
+        return provider_failure(error, "/web/profile/generate-bio", "#bio-textarea-container")
 
     if profile:
         profile.bio = generated_bio
@@ -1132,7 +1300,7 @@ async def generate_profile_bio_web(
             </button>
         </div>
         <textarea name="bio" rows="3" placeholder="2-3 sentence executive summary of your expertise and background..."
-                  class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">{generated_bio}</textarea>
+                  class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">{escape(generated_bio)}</textarea>
         <p class="text-[10px] text-emerald-400 flex items-center space-x-1">
             <svg class="w-3 h-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
             <span>Executive summary generated automatically with AI! Click "Save Profile" below to sync vectors.</span>
@@ -1146,11 +1314,11 @@ async def generate_profile_bio_web(
 async def sync_linkedin_form(
     request: Request,
     linkedin_url: str = Form(...),
-    session_cookie: str = Form(...),
+    session_cookie: str | None = Form(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> HTMLResponse:
-    """Analyze and sync LinkedIn profile using li_at session cookie."""
+    """Analyze and sync LinkedIn profile using a pasted or stored encrypted li_at cookie."""
     from app.ai.linkedin_analyzer import LinkedInProfileAnalyzer
 
     error_msg = None
@@ -1162,15 +1330,74 @@ async def sync_linkedin_form(
                 session_cookie=session_cookie.strip() if session_cookie else None,
                 user_id=current_user.id,
             )
-        except Exception as err:
-            logger.error("LinkedIn sync failed: %s", err)
+        except AIProviderError as err:
+            return provider_failure(err)
+        except ValueError as err:
+            # Analyzer ValueErrors are static guidance (missing/expired cookie), never secrets
             error_msg = str(err)
+        except Exception:
+            error_msg = "LinkedIn synchronization failed. Check the URL and session cookie."
     else:
         error_msg = "Please enter a valid LinkedIn profile URL (e.g. https://www.linkedin.com/in/username)."
 
     return await get_profile_view(
         request=request, session=session, error_message=error_msg, current_user=current_user
     )
+
+
+def _linkedin_badge(label: str, tone: str) -> HTMLResponse:
+    colors = {
+        "ok": "bg-emerald-950 border-emerald-800 text-emerald-400",
+        "bad": "bg-rose-950 border-rose-800 text-rose-300",
+        "idle": "bg-slate-900 border-slate-700 text-slate-400",
+    }[tone]
+    return HTMLResponse(
+        f'<span id="linkedin-session-badge" class="text-xs px-2.5 py-1 rounded border font-mono {colors}">{escape(label)}</span>'
+    )
+
+
+@router.post("/web/profile/linkedin/login", response_class=HTMLResponse)
+async def linkedin_login_form(
+    request: Request,
+    linkedin_email: str = Form(""),
+    linkedin_password: str = Form(""),
+    linkedin_code: str = Form(""),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Log in with credentials via Playwright; only the encrypted li_at cookie is persisted."""
+    from app.scrapers.linkedin_auth import LinkedInAuthManager
+
+    result = await LinkedInAuthManager.login_and_capture_session(
+        email=linkedin_email, password=linkedin_password, session=session, user_id=current_user.id,
+        verification_code=linkedin_code,
+    )
+    if result.get("success"):
+        return await get_profile_view(
+            request=request, session=session, current_user=current_user,
+            toast_message="Logged in to LinkedIn. Session cookie stored encrypted; credentials were not saved.",
+        )
+    return await get_profile_view(
+        request=request, session=session, current_user=current_user,
+        error_message=result.get("error") or "LinkedIn login failed.",
+    )
+
+
+@router.get("/web/profile/linkedin/status", response_class=HTMLResponse)
+async def linkedin_session_status(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Validate the stored li_at cookie and return a status badge."""
+    from app.scrapers.linkedin_auth import LinkedInAuthManager
+
+    profile = get_user_profile(session, current_user.id, decrypt=True)
+    cookie = profile.linkedin_session_cookie if profile else None
+    if not cookie:
+        return _linkedin_badge("Needs login", "idle")
+    if await LinkedInAuthManager.validate_session_cookie(cookie):
+        return _linkedin_badge("Logged In (Active)", "ok")
+    return _linkedin_badge("Expired - log in again", "bad")
 
 
 @router.post("/api/jobs/{job_id}/notes")
@@ -1197,6 +1424,10 @@ async def add_job_note(
     session.add(note)
     session.commit()
 
+    warning = await _record_feedback(
+        session, job, job.status, note.note_text, current_user.id, sentiment_override=sentiment,
+    )
+
     notes = session.exec(
         select(FeedbackNote).where(
             FeedbackNote.job_id == job_id,
@@ -1212,4 +1443,6 @@ async def add_job_note(
         f'</div>{n.note_text}</div>'
         for n in notes
     ])
+    if warning:
+        items += f'<div role="alert" class="p-2.5 text-xs text-amber-300">{escape(warning)}</div>'
     return HTMLResponse(items)

@@ -4,7 +4,46 @@
 
 - **Milestones 1-6** — Phases 1-16 completed; original phase details are preserved in the legacy phase archive.
 - **v7.0 Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Phases 17-18 shipped 2026-10-28; [roadmap archive](milestones/v7.0-ROADMAP.md), [requirements archive](milestones/v7.0-REQUIREMENTS.md), [audit](milestones/v7.0-MILESTONE-AUDIT.md).
-- **Next:** Define v8.0 SaaS product scope through milestone discovery.
+- **v8.0 Production SaaS Foundation** — Completed private-beta readiness milestone covering product contract, security invariants, persistence foundation, workflow design, and launch gates.
+
+## Active Milestone: v8.0 Production SaaS Foundation
+
+The v8.0 milestone resolved key product and operational questions before a controlled private-beta launch path was documented and closed.
+
+### Phase 19: Beta Contract and Policy Decisions (Complete)
+
+- Goal: confirm who the beta serves, which sources are allowed, how AI usage is governed, and what the operational policy envelope is.
+- Key outputs: target customer and geography, source-access terms, data-processing disclosures, own/support model, beta scope, and non-billing or pricing decision.
+- Exit criteria: policy decisions recorded or explicitly deferred with owners and risks.
+- Status: executed via Phase 19 context, plan, and summary artifacts; private-beta contract documented.
+
+### Phase 20: Tenant, Privacy, and Hosted Security Invariants (Complete)
+
+- Goal: prove account isolation and data protection before any hosted production workflow is built.
+- Key outputs: ownership inventory, fail-closed auth checks, cross-account security tests, sensitive-data flow map, and key-management design.
+- Exit criteria: tenant isolation is validated by regression tests and privacy controls are mapped to every write path.
+- Status: executed via the phase 20 context, plan, and summary artifacts; the tenant-isolation foundation is locked.
+
+### Phase 21: Hosted Persistence and Runtime Foundation (Complete)
+
+- Goal: establish durable hosted state and the runtime roles required for a private beta.
+- Key outputs: selected database and migration strategy, hosted/local storage adapters, queue ownership, migration/rollback plan, and operational service boundaries.
+- Exit criteria: database and runtime design is approved with tested backup and recovery steps.
+- Status: executed via the phase 21 context, plan, and summary artifacts; the hosted runtime contract is documented.
+
+### Phase 22: Hosted Personal Workflow and Managed-AI Controls (Complete)
+
+- Goal: turn the validated security and persistence foundation into the beta user experience.
+- Key outputs: hosted onboarding, job workflow, AI usage UX, provider disclosures, export/delete controls, and cost guardrails.
+- Exit criteria: the hosted beta workflow works with rate limits and clear user-facing error states.
+- Status: executed via the phase 22 context, plan, and summary artifacts; the private-beta workflow is defined.
+
+### Phase 23: Production Gates and Private-Beta Readiness (Complete)
+
+- Goal: verify the service is operationally safe to invite users into a private beta.
+- Key outputs: observability, backup/restore drills, deletion/retention verification, support runbooks, load and cost tests, incident response plan, and release-go decision gate.
+- Exit criteria: the beta is ready for controlled invitation, not general public launch.
+- Status: executed via the phase 23 context, plan, and summary artifacts; the readiness gate and launch contract are complete.
 
 ## Phases
 

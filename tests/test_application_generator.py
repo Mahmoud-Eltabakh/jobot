@@ -1,13 +1,14 @@
 """Unit and integration tests for AI Cover Letter Generator & Resume Tailoring Engine."""
 
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.ai.application_generator import ApplicationGenerator
-from app.ai.client import MockAIClient
+from app.ai.client import AIProviderError, MockAIClient
 from app.auth.security import hash_password
 from app.db.database import engine, init_db
 from app.db.models import ApplicationMaterial, Job, User, UserProfile
@@ -148,41 +149,43 @@ def test_applications_rest_api():
         job_id = job.id
         user_id = user.id
 
-    with TestClient(app) as client:
-        login(client)
-        # 1. Generate Cover Letter via API
-        gen_resp = client.post(
-            f"/api/jobs/{job_id}/cover-letter/generate",
-            json={"tone": "direct", "custom_instructions": "Highlight remote productivity."},
-        )
-        assert gen_resp.status_code == 200
-        data = gen_resp.json()
-        assert data["status"] == "ok"
-        assert data["material_type"] == "cover_letter"
-        material_id = data["material_id"]
-        with Session(engine) as session:
-            material = session.get(ApplicationMaterial, material_id)
-            assert material is not None
-            assert material.user_id == user_id
+    with patch("app.ai.application_generator.ApplicationGenerator.generate_cover_letter", new_callable=AsyncMock, return_value="# Direct Cover Letter\nReady to work."), \
+         patch("app.ai.application_generator.ApplicationGenerator.generate_tailored_resume_points", new_callable=AsyncMock, return_value="### Tailored Resume\n- Python"):
+        with TestClient(app) as client:
+            login(client)
+            # 1. Generate Cover Letter via API
+            gen_resp = client.post(
+                f"/api/jobs/{job_id}/cover-letter/generate",
+                json={"tone": "direct", "custom_instructions": "Highlight remote productivity."},
+            )
+            assert gen_resp.status_code == 200
+            data = gen_resp.json()
+            assert data["status"] == "ok"
+            assert data["material_type"] == "cover_letter"
+            material_id = data["material_id"]
+            with Session(engine) as session:
+                material = session.get(ApplicationMaterial, material_id)
+                assert material is not None
+                assert material.user_id == user_id
 
-        # 2. Generate Tailored Resume via API
-        resume_resp = client.post(f"/api/jobs/{job_id}/tailor-resume/generate")
-        assert resume_resp.status_code == 200
-        assert resume_resp.json()["material_type"] == "tailored_resume"
+            # 2. Generate Tailored Resume via API
+            resume_resp = client.post(f"/api/jobs/{job_id}/tailor-resume/generate")
+            assert resume_resp.status_code == 200
+            assert resume_resp.json()["material_type"] == "tailored_resume"
 
-        # 3. Get All Job Materials
-        list_resp = client.get(f"/api/jobs/{job_id}/materials")
-        assert list_resp.status_code == 200
-        materials = list_resp.json()["materials"]
-        assert len(materials) >= 2
+            # 3. Get All Job Materials
+            list_resp = client.get(f"/api/jobs/{job_id}/materials")
+            assert list_resp.status_code == 200
+            materials = list_resp.json()["materials"]
+            assert len(materials) >= 2
 
-        # 4. Update Material
-        put_resp = client.put(
-            f"/api/jobs/materials/{material_id}",
-            json={"content_markdown": "# Updated Cover Letter Content\nReady to interview."},
-        )
-        assert put_resp.status_code == 200
-        assert "Updated Cover Letter" in put_resp.json()["content_markdown"]
+            # 4. Update Material
+            put_resp = client.put(
+                f"/api/jobs/materials/{material_id}",
+                json={"content_markdown": "# Updated Cover Letter Content\nReady to interview."},
+            )
+            assert put_resp.status_code == 200
+            assert "Updated Cover Letter" in put_resp.json()["content_markdown"]
 
 
 def test_job_inspector_drawer_and_htmx_endpoints():
@@ -191,36 +194,133 @@ def test_job_inspector_drawer_and_htmx_endpoints():
         job, _, _ = create_sample_job_and_profile(session)
         job_id = job.id
 
-    with TestClient(app) as client:
-        login(client)
-        # 1. GET Inspector HTML
-        resp = client.get(f"/web/job/{job_id}/inspect")
-        assert resp.status_code == 200
-        assert "AI Cover Letter" in resp.text
-        assert "Tailored Resume" in resp.text
+    with patch("app.ai.application_generator.ApplicationGenerator.generate_cover_letter", new_callable=AsyncMock, return_value="# Generated Cover Letter"), \
+         patch("app.ai.application_generator.ApplicationGenerator.generate_tailored_resume_points", new_callable=AsyncMock, return_value="### Tailored Resume"):
+        with TestClient(app) as client:
+            login(client)
+            # 1. GET Inspector HTML
+            resp = client.get(f"/web/job/{job_id}/inspect")
+            assert resp.status_code == 200
+            assert "AI Cover Letter" in resp.text
+            assert "Tailored Resume" in resp.text
 
-        # 2. POST Generate Cover Letter via HTMX endpoint
-        cl_resp = client.post(
-            f"/web/job/{job_id}/cover-letter/generate",
-            data={"tone": "professional"},
-        )
-        assert cl_resp.status_code == 200
-        assert "cover-letter-text" in cl_resp.text
-        assert "Copy to Clipboard" in cl_resp.text
+            # 2. POST Generate Cover Letter via HTMX endpoint
+            cl_resp = client.post(
+                f"/web/job/{job_id}/cover-letter/generate",
+                data={"tone": "professional"},
+            )
+            assert cl_resp.status_code == 200
+            assert "cover-letter-text" in cl_resp.text
+            assert "Copy to Clipboard" in cl_resp.text
 
-        # 3. POST Generate Tailored Resume via HTMX endpoint
-        cv_resp = client.post(f"/web/job/{job_id}/tailor-resume/generate")
-        assert cv_resp.status_code == 200
-        assert "tailored-resume-text" in cv_resp.text
+            # 3. POST Generate Tailored Resume via HTMX endpoint
+            cv_resp = client.post(f"/web/job/{job_id}/tailor-resume/generate")
+            assert cv_resp.status_code == 200
+            assert "tailored-resume-text" in cv_resp.text
 
-        # 4. POST Save Material Changes
-        save_resp = client.post(
-            f"/web/job/{job_id}/materials/save",
-            data={
-                "material_type": "cover_letter",
-                "content_markdown": "Final custom saved letter.",
-                "tone": "professional",
-            },
-        )
-        assert save_resp.status_code == 200
-        assert "Saved!" in save_resp.text
+            # 4. POST Save Material Changes
+            save_resp = client.post(
+                f"/web/job/{job_id}/materials/save",
+                data={
+                    "material_type": "cover_letter",
+                    "content_markdown": "Final custom saved letter.",
+                    "tone": "professional",
+                },
+            )
+            assert save_resp.status_code == 200
+            assert "Saved!" in save_resp.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["generate_cover_letter", "generate_tailored_resume_points"])
+async def test_generation_provider_failure_never_returns_template(method):
+    client = MockAIClient()
+    failure = AIProviderError("openai", "owner-model", "rate_limit", 429)
+    client.generate = AsyncMock(side_effect=failure)
+    with Session(engine) as session:
+        job, profile, _ = create_sample_job_and_profile(session)
+        with pytest.raises(AIProviderError) as error:
+            await getattr(ApplicationGenerator, method)(job, profile, ai_client=client)
+        assert error.value is failure
+        client.generate.assert_awaited_once()
+        assert not session.exec(select(ApplicationMaterial)).all()
+
+
+@pytest.mark.asyncio
+async def test_generator_owner_resolution_prompt_tone_and_conflict(monkeypatch):
+    client = MockAIClient()
+    client.generate = AsyncMock(return_value="  Real generated letter  ")
+    calls = []
+
+    def resolve(*, user_id=None, task_type="scoring"):
+        calls.append((user_id, task_type))
+        return client
+
+    monkeypatch.setattr("app.ai.application_generator.get_ai_client", resolve)
+    with Session(engine) as session:
+        job, profile, user = create_sample_job_and_profile(session)
+        assert await ApplicationGenerator.generate_cover_letter(job, profile, "direct", "Remote productivity") == "Real generated letter"
+        assert calls == [(user.id, "applying")]
+        kwargs = client.generate.await_args.kwargs
+        assert "3-paragraph" in kwargs["system_prompt"]
+        assert "Remote productivity" in kwargs["prompt"]
+        assert profile.full_name in kwargs["prompt"] and job.company in kwargs["prompt"]
+        assert kwargs["json_mode"] is False
+        await ApplicationGenerator.generate_tailored_resume_points(job, profile)
+        assert calls == [(user.id, "applying"), (user.id, "applying")]
+        profile.user_id = user.id + 1
+        for method in (ApplicationGenerator.generate_cover_letter, ApplicationGenerator.generate_tailored_resume_points):
+            with pytest.raises(AIProviderError) as error:
+                await method(job, profile, ai_client=client)
+            assert error.value.category == "configuration"
+        assert client.generate.await_count == 2
+
+
+@pytest.mark.parametrize("path,material_type", [("cover-letter", "cover_letter"), ("tailor-resume", "tailored_resume")])
+@pytest.mark.parametrize("provider,category,status,expected", [
+    ("openai", "rate_limit", 429, 502),
+    ("openai", "quota", 402, 502),
+    ("ollama", "unavailable", None, 503),
+    ("openai", "invalid_response", None, 502),
+])
+def test_rest_applying_failure_preserves_materials(monkeypatch, path, material_type, provider, category, status, expected):
+    client = MockAIClient()
+    failure = AIProviderError(provider, "owner-model", category, status)
+    client.generate = AsyncMock(side_effect=failure)
+    calls = []
+
+    def resolve(session, user_id, *, task_type="scoring"):
+        calls.append((user_id, task_type))
+        return client
+
+    monkeypatch.setattr("app.api.applications.get_ai_client", resolve, raising=False)
+    monkeypatch.setattr("app.ai.application_generator.get_ai_client", lambda **kwargs: client)
+    with Session(engine) as session:
+        job, _, user = create_sample_job_and_profile(session)
+        job_id, owner = job.id, user.id
+        material = ApplicationGenerator.save_material(session, job_id, material_type, "Original unchanged", owner)
+        material_id = material.id
+    with TestClient(app, raise_server_exceptions=False) as web:
+        login(web)
+        response = web.post(f"/api/jobs/{job_id}/{path}/generate", json={"tone":"direct"})
+        assert response.status_code == expected
+        diagnostic = response.json()["detail"]
+        assert diagnostic["provider"] == provider
+        assert diagnostic["category"] == category
+        assert diagnostic["status_code"] == status
+        assert diagnostic["model"] == "owner-model"
+    assert calls == [(owner, "applying")]
+    with Session(engine) as session:
+        assert session.get(ApplicationMaterial, material_id).content_markdown == "Original unchanged"
+        assert len(session.exec(select(ApplicationMaterial)).all()) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["generate_cover_letter", "generate_tailored_resume_points"])
+async def test_empty_application_response_is_an_explicit_failure(method):
+    with Session(engine) as session:
+        job, profile, _ = create_sample_job_and_profile(session)
+        with pytest.raises(AIProviderError) as error:
+            await getattr(ApplicationGenerator, method)(job, profile, ai_client=MockAIClient("   "))
+        assert error.value.category == "invalid_response"
+        assert not session.exec(select(ApplicationMaterial)).all()

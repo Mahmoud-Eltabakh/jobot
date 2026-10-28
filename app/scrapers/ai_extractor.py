@@ -1,4 +1,16 @@
-"""AI-Assisted Web Scraper: Dynamic DOM, HTML & Text Job Extractor."""
+"""Normalize untrusted listing text through the owner's scraping assignment.
+
+HTML cleaning reduces the prompt payload; it is not a provider fallback.
+The system prompt and user content remain separate at the generation boundary.
+An explicitly injected generation client preserves existing integration tests.
+Otherwise the session and owner select credentials and the scraping model.
+No account client is cached or shared between independent extraction calls.
+Schema failures are reported through the same safe error contract as adapters.
+An empty object cannot become an apparently successful job with default fields.
+A valid non-job classification may still discard advertising without an error.
+No deterministic parser fabricates a listing from page text or a placeholder URL.
+Cancellation is not caught and can unwind the caller's worker normally.
+"""
 
 import json
 import logging
@@ -6,8 +18,9 @@ import re
 
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
+from sqlmodel import Session
 
-from app.ai.client import BaseAIClient, get_ai_client
+from app.ai.client import AIProviderError, BaseAIClient, _provider_error, get_ai_client
 from app.scrapers.base import ScrapedJob
 
 logger = logging.getLogger("jobot.scrapers.ai_extractor")
@@ -51,7 +64,11 @@ class AIExtractedJobListing(BaseModel):
 
 
 class AIScraperExtractor:
-    """Extracts clean job records from arbitrary rendered HTML or text using LLM."""
+    """Extract job records without converting provider failures into jobs.
+
+    Owner context is keyword-only so the established four positional
+    arguments keep their meanings for existing scraper integrations.
+    """
 
     @classmethod
     def clean_html_to_markdown_text(cls, html_content: str, max_chars: int = 8000) -> str:
@@ -75,13 +92,26 @@ class AIScraperExtractor:
         source_url: str = "",
         source: str = "web",
         ai_client: BaseAIClient | None = None,
+        *,
+        session: Session | None = None,
+        user_id: int | None = None,
     ) -> ScrapedJob | None:
-        """Parse raw HTML/DOM into a normalized ScrapedJob using AI."""
+        """Parse raw HTML/DOM through an owner-scoped scraping client.
+
+        Empty source input is a no-op, not a model failure. Nonempty input
+        requires a valid provider response with a usable listing identity.
+        Fenced JSON remains accepted for compatible existing clients, while
+        invalid schemas are normalized without logging the response body.
+        A legitimate listing retains source provenance and cleaned content.
+        Typed adapter failures propagate unchanged, preserving status/model
+        metadata for queue and API consumers. Other parsing failures are
+        sanitized before crossing the same public error boundary.
+        """
         cleaned_text = cls.clean_html_to_markdown_text(html_or_text)
         if not cleaned_text:
             return None
 
-        client = ai_client or get_ai_client()
+        client = ai_client or get_ai_client(session, user_id, task_type="scraping")
 
         try:
             prompt = f"Extract structured job posting from this web page content:\n\nURL: {source_url}\nSource: {source}\n\n{cleaned_text}"
@@ -104,6 +134,9 @@ class AIScraperExtractor:
                 logger.info("AI extractor flagged listing at %s as non-job content", source_url)
                 return None
 
+            if not extracted.title.strip() or not extracted.company.strip():
+                raise ValueError("Missing job identity")
+
             return ScrapedJob(
                 source=source,
                 source_id=None,
@@ -114,49 +147,13 @@ class AIScraperExtractor:
                 salary_min=extracted.salary_min,
                 salary_max=extracted.salary_max,
                 salary_currency=extracted.salary_currency,
-                url=source_url or "https://example.com/job",
+                url=source_url,
                 description=extracted.description or cleaned_text[:1000],
             )
+        except AIProviderError:
+            raise
         except Exception as err:
-            logger.warning("AI extraction failed (%s), falling back to heuristic extractor", err)
-            return cls._fallback_heuristic_extractor(cleaned_text, source_url, source)
+            raise _provider_error(
+                getattr(client, "provider", "ollama"), getattr(client, "model", ""), err,
+            ) from None
 
-    @classmethod
-    def _fallback_heuristic_extractor(
-        cls,
-        text: str,
-        source_url: str,
-        source: str,
-        default_title: str | None = None,
-    ) -> ScrapedJob:
-        """Heuristic regex-based fallback extractor for offline or non-AI modes."""
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        title = default_title.strip() if (default_title and default_title.strip()) else (lines[0] if lines else "")
-        company = lines[1] if len(lines) > 1 else ""
-
-        is_remote = bool(re.search(r"\b(remote|homeoffice|work from home)\b", text, re.IGNORECASE))
-        
-        salary_min, salary_max, curr = None, None, None
-        salary_match = re.search(r"(\d{2,3})[,\.]?(\d{3})\s*[-–]\s*(\d{2,3})[,\.]?(\d{3})\s*(€|\$|EUR|USD)?", text)
-        if salary_match:
-            try:
-                salary_min = float(salary_match.group(1) + salary_match.group(2))
-                salary_max = float(salary_match.group(3) + salary_match.group(4))
-                if salary_match.group(5):
-                    curr = salary_match.group(5)
-            except Exception:
-                pass
-
-        return ScrapedJob(
-            source=source,
-            source_id=None,
-            title=title[:100],
-            company=company[:100],
-            location="Remote" if is_remote else "",
-            is_remote=is_remote,
-            salary_min=salary_min,
-            salary_max=salary_max,
-            salary_currency=curr,
-            url=source_url or "",
-            description=text[:2500],
-        )

@@ -49,6 +49,7 @@ def test_upsert_query_and_delete(temp_vector_store: VectorStore) -> None:
         ids=ids,
         documents=docs,
         metadatas=metadatas,
+        embeddings=[[1.0, 0.0], [0.0, 1.0]],
     )
 
     assert temp_vector_store.count(collection) == 2
@@ -56,7 +57,7 @@ def test_upsert_query_and_delete(temp_vector_store: VectorStore) -> None:
     # Query
     results = temp_vector_store.query_similar(
         collection_name=collection,
-        query_texts=["Python FastAPI backend developer"],
+        query_embeddings=[[1.0, 0.0]],
         n_results=1,
     )
 

@@ -1,19 +1,26 @@
 """Tests for Job Evaluator agent, prompt injection protection, and database update."""
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlmodel import Session, select
 
-from app.ai.client import MockAIClient
+from app.ai.client import AIProviderError, MockAIClient
 from app.ai.evaluator import JobEvaluator, JobFitEvaluation
 from app.db.database import engine, init_db
 from app.db.models import Job, JobStatus, UserProfile
+from app.db.vector import VectorStore
 
 
 @pytest.fixture(autouse=True)
-def setup_db() -> None:
+def setup_db(monkeypatch, tmp_path) -> None:
     init_db()
+    store = VectorStore(str(tmp_path / "evaluator-vectors"))
+    local = MockAIClient()
+    local.embed = AsyncMock(wraps=local.embed)
+    monkeypatch.setattr("app.ai.evaluator.get_vector_store", lambda: store)
+    monkeypatch.setattr("app.ai.evaluator.get_embedding_client", lambda *args: local)
 
 
 def test_job_fit_evaluation_schema_validation() -> None:
@@ -117,7 +124,7 @@ async def test_evaluate_and_update_job_database() -> None:
 @pytest.mark.asyncio
 async def test_evaluate_and_delete_non_matching_job() -> None:
     """Verify that jobs with 0 matching skills are deleted from databank."""
-    mock_client = MockAIClient(default_response="{}")
+    mock_client = MockAIClient(default_response='{"fit_score":0,"recommendation":"Not a Fit"}')
 
     with Session(engine) as session:
         profile = UserProfile(
@@ -279,6 +286,131 @@ async def test_rescore_all_jobs_method() -> None:
         session.add(job)
         session.commit()
 
-        mock_client = MockAIClient(default_response="{}")
+        mock_client = MockAIClient(default_response='{"fit_score":85,"recommendation":"Strong Match"}')
         count = await JobEvaluator.rescore_all_jobs(session=session, ai_client=mock_client)
         assert count >= 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", ["{}", "[]", "not-json"])
+async def test_invalid_scoring_is_not_a_baseline_success(response):
+    with pytest.raises(AIProviderError) as error:
+        await JobEvaluator.evaluate_job("Skills: [\"Python\"]", "Python", MockAIClient(response))
+    assert error.value.category == "invalid_response"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category", ["rate_limit", "quota", "unavailable"])
+async def test_scoring_failure_preserves_job_and_propagates_rescore(category, monkeypatch):
+    client = MockAIClient()
+    failure = AIProviderError("openai", "owner-model", category, 429 if category == "rate_limit" else None)
+    client.generate = AsyncMock(side_effect=failure)
+    monkeypatch.setattr("app.ai.evaluator.get_embedding_client", lambda *args: MockAIClient(), raising=False)
+    with Session(engine) as session:
+        session.add(UserProfile(full_name="Python Dev", skills_json='["Python"]'))
+        job = Job(title="Nurse", company="Test", location="Onsite", source="test", url="https://example.com", dedup_hash="must-preserve", fit_score=0, fit_summary="Original")
+        session.add(job)
+        session.commit()
+        for operation in (
+            lambda: JobEvaluator.evaluate_and_update_job(job.id, session, client),
+            lambda: JobEvaluator.rescore_all_jobs(session, client),
+        ):
+            with pytest.raises(AIProviderError) as error:
+                await operation()
+            assert error.value is failure
+            session.refresh(job)
+            assert job.fit_score == 0 and job.fit_summary == "Original"
+        assert client.generate.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_owned_evaluator_separates_scoring_and_local_vectors(monkeypatch, tmp_path, authenticated_user):
+    owner = authenticated_user["id"]
+    store = VectorStore(str(tmp_path / "vectors"))
+    store.upsert_documents(VectorStore.COLLECTION_CV_PROFILE, ["profile"], ["Python"], [{"user_id": owner}], [[1.0, 0.0]])
+    store.upsert_documents(VectorStore.COLLECTION_USER_FEEDBACK, ["feedback"], ["Python"], [{"user_id": owner, "sentiment":"positive"}], [[1.0, 0.0]])
+    cloud, local = MockAIClient('{"fit_score":88}'), MockAIClient()
+    cloud.embed = AsyncMock(return_value=[1.0, 0.0])
+    local.embed = AsyncMock(return_value=[1.0, 0.0])
+    calls = []
+
+    def generation(session, user_id, *, task_type="scoring"):
+        calls.append((user_id, task_type))
+        return cloud
+
+    def embeddings(session, user_id):
+        calls.append((user_id, "embeddings"))
+        return local
+
+    monkeypatch.setattr("app.ai.evaluator.get_ai_client", generation, raising=False)
+    monkeypatch.setattr("app.ai.evaluator.get_embedding_client", embeddings, raising=False)
+    monkeypatch.setattr("app.ai.evaluator.get_vector_store", lambda: store)
+    with Session(engine) as session:
+        session.add(UserProfile(user_id=owner, full_name="Test", skills_json='["Python"]'))
+        job = Job(user_id=owner, title="Python", company="Test", location="Remote", source="test", url="https://example.com", dedup_hash="owned-local-score", fit_score=41)
+        session.add(job)
+        session.commit()
+        assert await JobEvaluator.rescore_all_jobs(session, user_id=owner) == 1
+        assert calls == [(owner, "scoring"), (owner, "embeddings")]
+        assert local.embed.await_count == 2
+        cloud.embed.assert_not_awaited()
+        assert session.get(Job, job.id).fit_score == 88
+        local.embed.side_effect = AIProviderError("ollama", "nomic-embed-text", "unavailable")
+        with pytest.raises(AIProviderError):
+            await JobEvaluator.evaluate_and_update_job(job.id, session, cloud, owner, embedding_client=local)
+        assert session.get(Job, job.id).fit_score == 88
+        assert store.count(VectorStore.COLLECTION_CV_PROFILE) == 1
+
+
+@pytest.mark.asyncio
+async def test_saved_history_weights_change_stored_fit_score() -> None:
+    """History/education/project weights must move the persisted fit_score."""
+    from app.db.database import set_app_setting
+
+    llm = MockAIClient(default_response=json.dumps({"fit_score": 60, "recommendation": "Potential Match"}))
+    history = json.dumps([{"title": "Engineer", "company": "Python", "description": "FastAPI Redis"}])
+
+    with Session(engine) as session:
+        session.add(UserProfile(full_name="Dev", skills_json='["Python"]'))
+        session.add(Job(
+            source="t", title="Engineer", company="X", location="Remote", url="https://example.com/w1",
+            description="Python FastAPI Redis Engineer", dedup_hash="w-1",
+        ))
+        session.commit()
+        job_id = session.exec(select(Job)).first().id
+
+    async def score() -> int:
+        with Session(engine) as session:
+            job = await JobEvaluator.evaluate_and_update_job(job_id, session, ai_client=llm)
+            return job.fit_score
+
+    # Baseline: profile without history keeps the model score
+    assert await score() == 60
+
+    with Session(engine) as session:
+        profile = session.exec(select(UserProfile)).first()
+        profile.experience_history_json = history
+        session.add(profile)
+        session.commit()
+
+    set_app_setting("weight_history_skills", 0)
+    set_app_setting("weight_education", 0)
+    set_app_setting("weight_projects", 0)
+    assert await score() == 60
+
+    set_app_setting("weight_history_skills", 10)
+    low = await score()
+    set_app_setting("weight_history_skills", 100)
+    high = await score()
+    assert 60 < low < high
+
+
+def test_seniority_progression_raises_seniority_score() -> None:
+    def summary(titles: list[str]) -> str:
+        hist = json.dumps([{"title": t, "company": f"C{i}"} for i, t in enumerate(titles)])
+        return f'Skills: ["Python"]\nExperience History: {hist}\nExperience: 2 years'
+
+    job = "Senior Python developer"
+    flat = JobEvaluator.compute_actual_skill_fit(summary(["Senior Dev", "Senior Dev"]), job)
+    grown = JobEvaluator.compute_actual_skill_fit(summary(["Junior Dev", "Senior Dev"]), job)
+    assert grown.breakdown.seniority_score > flat.breakdown.seniority_score

@@ -37,22 +37,29 @@ class BlacklistSuggester:
         session: Session,
         ai_client: BaseAIClient | None = None,
         min_occurrences: int = 2,
+        user_id: int | None = None,
     ) -> list[SuggestedRule]:
-        """Analyze negative notes and rejected jobs to propose new blacklist FilterRules."""
+        """Analyze negative notes and rejected jobs to propose new blacklist FilterRules.
+
+        When user_id is given, only that account's rules, notes and jobs are read.
+        """
+        def scoped(stmt, model):
+            return stmt.where(model.user_id == user_id) if user_id is not None else stmt
+
         # 1. Fetch existing active rules to avoid duplicate suggestions
-        existing_rules = session.exec(select(FilterRule)).all()
+        existing_rules = session.exec(scoped(select(FilterRule), FilterRule)).all()
         existing_patterns = {r.pattern.lower().strip() for r in existing_rules}
 
         # 2. Fetch negative feedback notes
         negative_notes = session.exec(
-            select(FeedbackNote).where(FeedbackNote.sentiment == "negative")
+            scoped(select(FeedbackNote).where(FeedbackNote.sentiment == "negative"), FeedbackNote)
         ).all()
 
         # 3. Fetch jobs explicitly marked as not a good fit or rejected
         disliked_jobs = session.exec(
-            select(Job).where(
+            scoped(select(Job).where(
                 Job.status.in_([JobStatus.NOT_A_FIT.value, JobStatus.REJECTED.value])
-            )
+            ), Job)
         ).all()
 
         if not negative_notes and not disliked_jobs:

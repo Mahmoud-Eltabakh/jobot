@@ -70,16 +70,43 @@
 
     <!-- LinkedIn Profile AI Ingestion Card -->
     <div class="bg-gradient-to-r from-blue-950/40 via-indigo-950/20 to-slate-900 border border-blue-900/40 rounded-xl p-5 space-y-4">
-        <div class="flex items-start justify-between">
-                    <h2 class="text-sm font-bold text-white">LinkedIn Profile Ingestion (via <code class="text-blue-300 font-mono">li_at</code> Cookie)</h2>
-                    <p class="text-xs text-slate-400">Extract your complete headline, work experience, and all skills directly using your authenticated session cookie.</p>
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h2 class="text-sm font-bold text-white">LinkedIn Profile Ingestion</h2>
+                <p class="text-xs text-slate-400">Log in once (only the encrypted <code class="text-blue-300 font-mono">li_at</code> session cookie is kept) or paste a cookie, then sync your headline, experience and skills.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                {% if has_linkedin_session %}
+                <span id="linkedin-session-badge" class="text-xs px-2.5 py-1 rounded border font-mono bg-slate-900 border-slate-700 text-slate-300">Session stored (not verified)</span>
+                {% else %}
+                <span id="linkedin-session-badge" class="text-xs px-2.5 py-1 rounded border font-mono bg-slate-900 border-slate-700 text-slate-400">Needs login</span>
+                {% endif %}
+                <button type="button" hx-get="/web/profile/linkedin/status" hx-target="#linkedin-session-badge" hx-swap="outerHTML"
+                        class="px-2.5 py-1 rounded border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs">Verify session</button>
+                <div id="linkedin-sync-indicator" class="htmx-indicator">
+                    <span class="text-xs px-2.5 py-1 rounded bg-blue-950 text-blue-400 border border-blue-800 animate-pulse">Working...</span>
                 </div>
             </div>
-
-            <div id="linkedin-sync-indicator" class="htmx-indicator">
-                <span class="text-xs px-2.5 py-1 rounded bg-blue-950 text-blue-400 border border-blue-800 animate-pulse">Analyzing with AI...</span>
-            </div>
         </div>
+
+        <form hx-post="/web/profile/linkedin/login" hx-target="#view-container" hx-indicator="#linkedin-sync-indicator" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end text-xs">
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">LinkedIn Email</label>
+                <input type="email" name="linkedin_email" autocomplete="off" required
+                       class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-slate-200">
+            </div>
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Password <span class="text-slate-500">(not stored)</span></label>
+                <input type="password" name="linkedin_password" autocomplete="new-password" required
+                       class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-slate-200">
+            </div>
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">2FA code <span class="text-slate-500">(optional, not stored)</span></label>
+                <input type="text" name="linkedin_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10"
+                       class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-slate-200 font-mono">
+            </div>
+            <button type="submit" class="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition active:scale-95">Log in to LinkedIn</button>
+        </form>
 
         <form hx-post="/web/profile/linkedin/sync" hx-target="#view-container" hx-indicator="#linkedin-sync-indicator" class="space-y-3 text-xs">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -90,9 +117,9 @@
                            class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-slate-200 font-mono">
                 </div>
                 <div>
-                    <label class="block text-slate-400 mb-1 font-medium">Session Cookie (<code class="text-blue-300 font-mono font-semibold">li_at</code>)</label>
+                    <label class="block text-slate-400 mb-1 font-medium">Session Cookie (<code class="text-blue-300 font-mono font-semibold">li_at</code>) <span class="text-slate-500">{% if has_linkedin_session %}(leave blank to use the stored session){% endif %}</span></label>
                     <input type="password" name="session_cookie" value="" autocomplete="new-password"
-                           placeholder="Paste your LinkedIn li_at cookie here..." required
+                           placeholder="{% if has_linkedin_session %}Stored session will be used{% else %}Paste your LinkedIn li_at cookie here...{% endif %}" {% if not has_linkedin_session %}required{% endif %}
                            class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-slate-200 font-mono">
                 </div>
             </div>
@@ -166,10 +193,48 @@
             </div>
 
             <div>
-                <label class="block text-slate-400 mb-1 font-medium">Target Job Titles <span class="text-slate-500">(comma-separated, used in scraper searches)</span></label>
-                <input type="text" name="target_titles" value="{{ target_titles_str }}" 
-                       placeholder="Python Developer, Backend Engineer, Cloud Architect" required
-                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono">
+                <label class="block text-slate-400 mb-1 font-medium">Target Job Titles <span class="text-slate-500">(press Enter or comma to add; used in scraper searches)</span></label>
+                <div id="titles-editor" class="flex flex-wrap items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg p-2">
+                    <input type="hidden" name="target_titles" id="target-titles-value" value="{{ target_titles_str }}">
+                    <span id="titles-chips" class="contents"></span>
+                    <input type="text" id="titles-new" placeholder="Add title..." aria-label="Add target job title"
+                           class="flex-1 min-w-[10rem] bg-transparent text-slate-200 font-mono outline-none p-1">
+                </div>
+                <script>
+                (function () {
+                    const hidden = document.getElementById('target-titles-value');
+                    const chips = document.getElementById('titles-chips');
+                    const input = document.getElementById('titles-new');
+                    let tags = hidden.value.split(',').map(t => t.trim()).filter(Boolean);
+                    function render() {
+                        hidden.value = tags.join(', ');
+                        chips.innerHTML = '';
+                        tags.forEach((t, i) => {
+                            const chip = document.createElement('span');
+                            chip.className = 'inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-950 border border-indigo-700/60 text-indigo-200 font-mono';
+                            chip.textContent = t;
+                            const x = document.createElement('button');
+                            x.type = 'button'; x.textContent = '\u00d7'; x.setAttribute('aria-label', 'Remove ' + t);
+                            x.className = 'text-indigo-400 hover:text-rose-400';
+                            x.onclick = () => { tags.splice(i, 1); render(); };
+                            chip.appendChild(x);
+                            chips.appendChild(chip);
+                        });
+                    }
+                    function add() {
+                        const v = input.value.replace(/,/g, '').trim();
+                        if (v && !tags.includes(v)) tags.push(v);
+                        input.value = '';
+                        render();
+                    }
+                    input.addEventListener('keydown', e => {
+                        if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); }
+                        else if (e.key === 'Backspace' && !input.value && tags.length) { tags.pop(); render(); }
+                    });
+                    input.addEventListener('blur', add);
+                    render();
+                })();
+                </script>
             </div>
 
             <div id="bio-textarea-container" class="space-y-1.5">

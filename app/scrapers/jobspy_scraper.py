@@ -6,10 +6,37 @@ from datetime import datetime
 
 import pandas as pd
 from jobspy import scrape_jobs
+from jobspy.model import Country
 
 from app.scrapers.base import BaseScraper, ScrapedJob
 
 logger = logging.getLogger("jobot.scrapers.jobspy")
+
+# JobSpy's own default market, used when a location does not name a country.
+DEFAULT_JOBSPY_COUNTRY = "usa"
+
+
+def resolve_jobspy_country(location: str | None, explicit_country: str | None = None) -> str:
+    """Return a country string JobSpy accepts for Indeed/Glassdoor domain selection.
+
+    JobSpy validates ``country_indeed`` even for sites that ignore it, so an empty
+    or city-style location (e.g. "Berlin, Germany") must never be passed raw.
+    """
+    candidates = [explicit_country or "", location or ""]
+    # Also try the trailing comma segment, which usually holds the country name.
+    if location and "," in location:
+        candidates.append(location.rsplit(",", 1)[1])
+
+    for candidate in candidates:
+        value = candidate.strip()
+        if not value:
+            continue
+        try:
+            Country.from_string(value)
+            return value
+        except ValueError:
+            continue
+    return DEFAULT_JOBSPY_COUNTRY
 
 
 class JobSpyScraper(BaseScraper):
@@ -18,7 +45,7 @@ class JobSpyScraper(BaseScraper):
     SUPPORTED_SITES = ["linkedin", "google", "indeed", "glassdoor", "zip_recruiter"]
 
     def __init__(self, default_sites: list[str] | None = None) -> None:
-        self.default_sites = default_sites or ["linkedin", "google"]
+        self.default_sites = default_sites or []
 
     def _sync_scrape(
         self,
@@ -136,21 +163,51 @@ class JobSpyScraper(BaseScraper):
         hours_old: int = 72,
         country_indeed: str | None = None,
     ) -> list[ScrapedJob]:
-        """Run JobSpy scraper asynchronously in thread pool without artificial small limits."""
+        """Run JobSpy scraper asynchronously across target websites in parallel threads.
+
+        When multiple job boards are requested (e.g. LinkedIn and Google Jobs),
+        individual site extractions are dispatched to concurrent background threads
+        to eliminate serial I/O bottlenecks.
+        """
         sites = site_name or self.default_sites
-        # Validate sites
+        # Validate requested platforms against supported list
         valid_sites = [s.lower() for s in sites if s.lower() in self.SUPPORTED_SITES]
         if not valid_sites:
             valid_sites = ["linkedin", "google"]
 
-        # If results_wanted is not provided, fetch up to 100 per query
-        limit_val = results_wanted if results_wanted is not None else 100
-        country_val = country_indeed or (location.strip())
+        limit_val = results_wanted if results_wanted is not None else 50
+        loc_val = location.strip() if location else ""
+        country_val = resolve_jobspy_country(location, country_indeed)
 
+        # Parallel multi-site scraping dispatch
+        if len(valid_sites) > 1:
+            tasks = [
+                asyncio.to_thread(
+                    self._sync_scrape,
+                    search_term=search_term,
+                    location=loc_val,
+                    results_wanted=limit_val,
+                    site_name=[site],
+                    is_remote=is_remote,
+                    hours_old=hours_old,
+                    country_indeed=country_val,
+                )
+                for site in valid_sites
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            all_jobs: list[ScrapedJob] = []
+            for res in results:
+                if isinstance(res, list):
+                    all_jobs.extend(res)
+                elif isinstance(res, Exception):
+                    logger.warning("Parallel JobSpy site scrape failed: %s", res)
+            return all_jobs
+
+        # Single site invocation
         return await asyncio.to_thread(
             self._sync_scrape,
             search_term=search_term,
-            location=location,
+            location=loc_val,
             results_wanted=limit_val,
             site_name=valid_sites,
             is_remote=is_remote,

@@ -32,11 +32,13 @@ class SearchQueryOptimizer:
         cls,
         session: Session,
         min_occurrences: int = 2,
+        user_id: int | None = None,
     ) -> list[str]:
         """Extract high-yield search keyword phrases from positive job history."""
-        positive_jobs = session.exec(
-            select(Job).where(Job.status.in_(cls.POSITIVE_STATUSES))
-        ).all()
+        stmt = select(Job).where(Job.status.in_(cls.POSITIVE_STATUSES))
+        if user_id is not None:
+            stmt = stmt.where(Job.user_id == user_id)
+        positive_jobs = session.exec(stmt).all()
 
         if not positive_jobs:
             return []

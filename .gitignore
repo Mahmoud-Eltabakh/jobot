@@ -11,3 +11,6 @@ env/
 data/
 *.log
 .env
+
+# Locally installed third-party AI skills and their provenance records.
+/.agents/skills/

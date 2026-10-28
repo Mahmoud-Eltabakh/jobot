@@ -156,3 +156,124 @@ def test_app_settings_helpers() -> None:
 
     # Reset back to ollama
     set_app_setting("ai_provider", "ollama")
+
+
+def test_owner_vault_batch_api_exists() -> None:
+    """Owner vault must expose atomic writes and idempotent legacy migration."""
+    from app.db import database
+
+    assert callable(getattr(database, "set_user_settings", None))
+    assert callable(getattr(database, "migrate_legacy_ai_settings", None))
+
+
+def test_vault_encryption_blank_preservation_and_rollback(authenticated_user, monkeypatch) -> None:
+    """A failed batch cannot persist a prefix, including after an autoflush."""
+    from app.db import database
+    from app.db.models import UserSetting
+
+    owner = authenticated_user["id"]
+    with Session(engine) as session:
+        assert callable(getattr(database, "set_user_settings", None))
+        values = {f"provider_{provider}_key": f"fake-{provider}" for provider in
+                  ("ollama", "openai", "anthropic", "gemini", "groq", "deepseek", "openrouter", "custom")}
+        database.set_user_settings(session, owner, values)
+        records = session.exec(select(UserSetting).where(UserSetting.user_id == owner)).all()
+        ciphertext = {record.key: record.value_json for record in records}
+        assert all(record.is_sensitive and record.value_json.startswith("enc:v2:") for record in records)
+        assert all(values[record.key] not in record.value_json for record in records)
+        database.set_user_settings(session, owner, {key: "  " for key in values})
+        assert {record.key: record.value_json for record in records} == ciphertext
+        original = database.set_user_setting
+
+        def fail_second(session, user_id, key, value, **kwargs):
+            if key == "task_scoring_model":
+                raise RuntimeError("injected batch failure")
+            original(session, user_id, key, value, **kwargs)
+            session.flush()
+
+        monkeypatch.setattr(database, "set_user_setting", fail_second)
+        with pytest.raises(RuntimeError, match="injected"):
+            database.set_user_settings(session, owner, {"task_scoring_provider": "openai", "task_scoring_model": "new"})
+        assert database.get_user_setting(session, owner, "task_scoring_provider") is None
+        monkeypatch.setattr(database, "set_user_setting", original)
+        monkeypatch.setattr(session, "commit", lambda: (_ for _ in ()).throw(RuntimeError("commit failure")))
+        with pytest.raises(RuntimeError, match="commit failure"):
+            database.set_user_settings(session, owner, {"provider_openai_key": "replacement", "task_scoring_provider": "openai"})
+        assert database.get_user_setting(session, owner, "provider_openai_key") == "fake-openai"
+        assert database.get_user_setting(session, owner, "task_scoring_provider") is None
+
+
+@pytest.mark.parametrize("provider", ["openai", "custom", "ollama"])
+def test_legacy_owner_ai_migration_is_idempotent(authenticated_user, provider) -> None:
+    """Only a matching owner's legacy secret migrates; explicit choices win."""
+    from app.db import database
+    from app.db.models import UserSetting
+
+    owner = authenticated_user["id"]
+    with Session(engine) as session:
+        assert callable(getattr(database, "migrate_legacy_ai_settings", None))
+        database.set_user_setting(session, owner, "ai_provider", provider)
+        database.set_user_setting(session, owner, "openai_api_key", "legacy-owner", sensitive=True)
+        database.set_user_setting(session, owner, "openai_base_url", "http://legacy.local/v1")
+        database.set_user_setting(session, owner, "openai_model", "legacy-cloud")
+        database.set_user_setting(session, owner, "ollama_model", "legacy-local")
+        database.set_user_setting(session, owner, "task_scoring_provider", "gemini")
+        database.set_user_setting(session, owner, "task_scoring_model", "explicit-model")
+        database.migrate_legacy_ai_settings(session, owner)
+        assert database.get_user_setting(session, owner, "task_scraping_provider") == provider
+        assert database.get_user_setting(session, owner, "task_scraping_model") == ("legacy-local" if provider == "ollama" else "legacy-cloud")
+        assert database.get_user_setting(session, owner, "task_scoring_provider") == "gemini"
+        assert database.get_user_setting(session, owner, "task_scoring_model") == "explicit-model"
+        if provider in ("custom", "openai"):
+            assert database.get_user_setting(session, owner, f"provider_{provider}_key") == "legacy-owner"
+        assert database.get_user_setting(session, owner, "provider_openai_key" if provider != "openai" else "provider_custom_key") is None
+        if provider == "custom":
+            assert database.get_user_setting(session, owner, "provider_custom_url") == "http://legacy.local/v1"
+        before = {record.key: record.value_json for record in session.exec(select(UserSetting)).all()}
+        database.migrate_legacy_ai_settings(session, owner)
+        assert {record.key: record.value_json for record in session.exec(select(UserSetting)).all()} == before
+
+
+def test_no_owner_legacy_settings_does_not_claim_installation_secrets(authenticated_user, monkeypatch) -> None:
+    """New accounts keep resolver defaults rather than seeded task overrides."""
+    from app.db import database
+    from app.db.models import AppSettings, UserSetting
+
+    assert callable(getattr(database, "migrate_legacy_ai_settings", None))
+    monkeypatch.setattr(database.settings, "openai_api_key", "fake-env-secret")
+    with Session(engine) as session:
+        database.seed_default_settings(session)
+        assert session.get(AppSettings, "openai_api_key") is None
+        assert not any(record.key.startswith("task_") or record.key.startswith("provider_") for record in session.exec(select(AppSettings)).all())
+        database.set_app_setting("openai_api_key", "fake-global-secret")
+        database.migrate_legacy_ai_settings(session, authenticated_user["id"])
+        assert session.exec(select(UserSetting)).all() == []
+
+
+def test_single_write_commit_compatibility_and_owner_vault_isolation(authenticated_user, monkeypatch) -> None:
+    """Existing callers commit once; deferred writes can be rolled back by callers."""
+    from unittest.mock import Mock
+    from app.db import database
+    from app.db.models import User
+
+    owner = authenticated_user["id"]
+    with Session(engine) as session:
+        other = User(email="vault-other@example.com", password_hash="not-used", full_name="Other")
+        session.add(other)
+        session.commit()
+        other_id = other.id
+        commit = Mock(wraps=session.commit)
+        monkeypatch.setattr(session, "commit", commit)
+        database.set_user_setting(session, owner, "provider_openai_key", "fake-owner")
+        assert commit.call_count == 1
+        database.set_user_setting(session, owner, "task_scoring_model", "uncommitted", commit=False)
+        assert commit.call_count == 1
+        session.rollback()
+        assert database.get_user_setting(session, owner, "task_scoring_model") is None
+        assert database.get_user_setting(session, other_id, "provider_openai_key") is None
+        database.migrate_legacy_ai_settings(session, other_id)
+        assert database.get_user_setting(session, other_id, "provider_openai_key") is None
+        database.set_user_settings(session, owner, {"provider_openai_key": "replacement", "task_scoring_model": "new"})
+        assert commit.call_count == 2
+        with pytest.raises(PermissionError):
+            database.set_user_settings(session, None, {"provider_openai_key": "fake-key"})

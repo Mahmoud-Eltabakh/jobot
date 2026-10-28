@@ -24,6 +24,13 @@
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <style>
+        @media (max-width: 639px) {
+            header > div { height: auto !important; flex-wrap: wrap; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
+            header nav { width: 100%; order: 3; }
+            header nav .nav-tab { flex: 1; min-width: 0; padding: 6px 3px; flex-direction: column; gap: 2px; margin: 0; }
+            header nav .nav-tab span { font-size: 10px; margin: 0; }
+            header > div > div:last-child { flex-wrap: wrap; gap: 4px; min-width: 0; }
+        }
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -142,6 +149,11 @@
 
     <!-- Main Content Body -->
     <main class="flex-1 flex flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        {% if current_user %}
+        <div id="system-alerts" aria-live="polite" hx-get="/web/components/system-alerts"
+             hx-trigger="load, every 15s, refreshView from:body" hx-swap="innerHTML" hx-sync="this:replace"></div>
+        {% endif %}
+        <div id="feedback-warning" role="status" aria-live="polite" class="text-xs text-amber-300 empty:hidden"></div>
         {% block content %}{% endblock %}
     </main>
 
@@ -152,6 +164,21 @@
     <div id="inspector-drawer"></div>
 
     <script>
+        document.body.addEventListener('feedbackWarning', function(event) {
+            document.getElementById('feedback-warning').textContent = event.detail.value || '';
+        });
+        document.body.addEventListener('htmx:beforeSwap', function(event) {
+            const response = event.detail.xhr;
+            const path = event.detail.requestConfig?.path || '';
+            const isProfileOperation = path.startsWith('/web/profile/') || path === '/api/settings/upload-cv';
+            const isSettingsRescore = path === '/api/settings/rescore-all' &&
+                event.detail.target?.id === 'scales-save-feedback';
+            if ((isProfileOperation || isSettingsRescore) && [422, 502, 503].includes(response.status) &&
+                (response.getResponseHeader('Content-Type') || '').includes('text/html')) {
+                event.detail.shouldSwap = true;
+                event.detail.isError = false;
+            }
+        });
         function switchTab(btn) {
             document.querySelectorAll('.nav-tab').forEach(el => {
                 el.classList.remove('bg-slate-800', 'text-white', 'shadow-sm');

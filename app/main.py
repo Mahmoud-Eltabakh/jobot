@@ -24,6 +24,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize SQLite database schema and seed default settings
     from app.db.database import init_db
     init_db()
+
+    # One-time-safe owner backfill for legacy feedback vectors; failure must not block startup
+    if not (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("JOBOT_TESTING")):
+        try:
+            from sqlmodel import Session
+
+            from app.ai.feedback import FeedbackManager
+            from app.db.database import engine
+            from app.db.vector import get_vector_store
+            with Session(engine) as session:
+                FeedbackManager.backfill_feedback_owners(session, get_vector_store())
+                from app.ai.embeddings import ProfileEmbedder
+                ProfileEmbedder.backfill_legacy_cv_vectors(session, get_vector_store())
+        except Exception as err:
+            logger.warning("Feedback vector owner backfill skipped: %s", err)
     
     # Do NOT start background loops when running under automated test suite
     is_testing = bool(os.getenv("PYTEST_CURRENT_TEST") or os.getenv("JOBOT_TESTING"))
@@ -63,18 +78,22 @@ app = FastAPI(
 # Include API & Web Routers
 from app.api.applications import router as applications_router
 from app.api.auth import router as auth_router
+from app.api.diagnostics import router as diagnostics_router
 from app.api.profile import router as profile_router
 from app.api.queue import router as queue_router
 from app.api.scrapers import router as scrapers_router
 from app.api.settings import router as settings_router
+from app.api.suggestions import router as suggestions_router
 from app.web.routes import router as web_router
 
 app.include_router(applications_router)
 app.include_router(auth_router)
+app.include_router(diagnostics_router)
 app.include_router(profile_router)
 app.include_router(queue_router)
 app.include_router(scrapers_router)
 app.include_router(settings_router)
+app.include_router(suggestions_router)
 app.include_router(web_router)
 
 # CORS configuration - restrict to local origins by default

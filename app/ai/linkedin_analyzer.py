@@ -8,7 +8,7 @@ from typing import Any
 from playwright.async_api import async_playwright
 from sqlmodel import Session
 
-from app.ai.client import BaseAIClient, get_ai_client
+from app.ai.client import AIProviderError, BaseAIClient, _provider_error, get_ai_client, get_embedding_client
 from app.ai.embeddings import ProfileEmbedder
 from app.ai.profile_extractor import ExtractedProfile, save_profile_to_db
 from app.db.models import UserProfile
@@ -445,34 +445,14 @@ class LinkedInProfileAnalyzer:
 
             data = json.loads(clean_json)
             extracted = ExtractedProfile.model_validate(data)
+            if not any((extracted.full_name.strip(), extracted.headline, extracted.summary.strip(), extracted.skills)):
+                raise ValueError("Empty extracted profile")
             if linkedin_url:
                 extracted.linkedin_url = linkedin_url
+        except AIProviderError:
+            raise
         except Exception as err:
-            logger.warning("LLM LinkedIn profile parsing failed (%s), using regex extraction", err)
-
-            # Filter out boilerplate web navigation lines
-            ignored_prefixes = {"linkedin", "skip to", "agree", "cookie", "sign in", "join", "about"}
-            lines = [l.strip() for l in raw_text.split("\n") if l.strip() and not any(l.strip().lower().startswith(p) for p in ignored_prefixes)]
-            name = lines[0] if lines else "Candidate"
-            
-            from app.ai.profile_extractor import extract_dynamic_skills_from_text
-            found_skills = extract_dynamic_skills_from_text(raw_text)
-
-            # Check for headline in second/third line if available
-            extracted_headline = lines[1] if len(lines) > 1 and len(lines[1]) < 120 else None
-
-            extracted = ExtractedProfile(
-                full_name=name[:50],
-                headline=extracted_headline,
-                summary="",
-                skills=found_skills,
-                active_search_skills=found_skills,
-                experience_years=0.0,
-                target_titles=[extracted_headline] if extracted_headline else [],
-                target_locations=[],
-                work_preference="remote_first",
-                linkedin_url=linkedin_url,
-            )
+            raise _provider_error(getattr(client, "provider", "ollama"), getattr(client, "model", ""), err) from None
 
         # Automatically generate professional executive summary using AI if empty or generic
         if not extracted.summary or len(extracted.summary.strip()) < 25 or "Profile imported" in extracted.summary:
@@ -490,8 +470,8 @@ class LinkedInProfileAnalyzer:
                     },
                     ai_client=client,
                 )
-            except Exception as b_err:
-                logger.warning("Failed auto-generating bio during LinkedIn analysis: %s", b_err)
+            except AIProviderError:
+                raise
 
         return extracted
 
@@ -510,7 +490,13 @@ class LinkedInProfileAnalyzer:
         """
         extracted: ExtractedProfile | None = None
         raw_text = ""
+        client = ai_client or get_ai_client(session=session, user_id=user_id, task_type="scraping")
 
+        # Reuse the encrypted stored cookie when none is supplied, so users need not re-paste it
+        if not (session_cookie and session_cookie.strip()) and not raw_text_override and user_id is not None:
+            from app.db.ownership import get_user_profile
+            stored = get_user_profile(session, user_id, decrypt=True)
+            session_cookie = stored.linkedin_session_cookie if stored else None
         # 1. Try Tom Quirk's official linkedin-api (Voyager REST API) first if cookie is provided
         if not raw_text_override and session_cookie and session_cookie.strip():
             extracted = cls.fetch_profile_via_linkedin_api(
@@ -541,10 +527,15 @@ class LinkedInProfileAnalyzer:
 
             extracted = await cls.analyze_profile_text(
                 raw_text=raw_text,
-                ai_client=ai_client,
+                ai_client=client,
                 linkedin_url=linkedin_url,
             )
 
+        await ProfileEmbedder.embed_and_store_profile(
+            profile=extracted, vector_store=get_vector_store(),
+            embedding_client=get_embedding_client(session=session, user_id=user_id),
+            session=session, user_id=user_id,
+        )
         user_profile = save_profile_to_db(
             profile=extracted,
             raw_text=raw_text,
@@ -561,18 +552,5 @@ class LinkedInProfileAnalyzer:
             session.add(user_profile)
             session.commit()
             session.refresh(user_profile)
-
-        # Synchronize vector store
-        try:
-            client = ai_client or get_ai_client()
-            vector_store = get_vector_store()
-            await ProfileEmbedder.embed_and_store_profile(
-                profile=extracted,
-                vector_store=vector_store,
-                ai_client=client,
-            )
-            logger.info("Synchronized ChromaDB vector embeddings for LinkedIn profile %s", user_profile.full_name)
-        except Exception as v_err:
-            logger.warning("Vector sync after LinkedIn import failed: %s", v_err)
 
         return user_profile

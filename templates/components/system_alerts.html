@@ -1,0 +1,15 @@
+<!-- Polled system alerts: only recorded, actionable problems for this account -->
+{% for alert in alerts %}
+<div role="{{ 'alert' if alert.level == 'error' else 'status' }}" data-alert="{{ alert.code }}"
+     class="mb-2 p-3 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2
+            {% if alert.level == 'error' %}border-rose-800 bg-rose-950/40 text-rose-200
+            {% elif alert.level == 'warning' %}border-amber-800 bg-amber-950/40 text-amber-200
+            {% else %}border-slate-700 bg-slate-900 text-slate-300{% endif %}">
+    <div class="min-w-0" style="overflow-wrap:anywhere">
+        <p class="font-semibold">{{ alert.title }}</p>
+        <p class="opacity-90">{{ alert.message }}</p>
+    </div>
+    <button type="button" hx-get="{{ alert.action_target }}" hx-target="#view-container" hx-push-url="false"
+            class="min-h-[36px] px-3 border rounded-lg hover:bg-slate-800/60 transition">Open</button>
+</div>
+{% endfor %}

@@ -124,8 +124,8 @@ async def toggle_queue_pause(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Toggle background worker pause/resume state."""
-    new_state = TaskQueue.toggle_pause(session)
+    """Toggle the caller's own queue pause state; other accounts are unaffected."""
+    new_state = TaskQueue.toggle_pause(session, current_user.id)
     return {
         "status": "ok",
         "is_paused": new_state,
