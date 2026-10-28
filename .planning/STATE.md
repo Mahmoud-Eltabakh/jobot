@@ -1,16 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v8.0
-milestone_name: Production SaaS Foundation
-status: complete
-last_updated: "2026-10-28T07:40:00.000Z"
+milestone: v9.0
+milestone_name: Official LinkedIn OpenID Connect & Developer Portal Integration
+status: in_progress
+last_updated: "2026-10-28T18:15:00.000Z"
 last_activity: 2026-10-28
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 2
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -125,12 +125,18 @@ Items acknowledged and deferred at v7.0 close:
 
 ## Current Position
 
-Phase: 23-production-gates-and-private-beta-readiness (complete)
-Plan: 23-01-PLAN.md (executed)
-Status: Milestone v8.0 completed as a private-beta readiness package; implementation can proceed to engineering validation under the finalized contract.
-Last activity: 2026-10-28 — v8.0 milestone audit and closure complete
+Phase: 25-professional-page-architecture-and-route-separation (planned)
+Plan: 25-01-PLAN.md
+Status: Phase 24 is superseded by the manual PDF-only LinkedIn direction; Phase 25 is ready for execution.
+Last activity: 2026-10-28 — Phase 24 superseded; Phase 25 selected for execution
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 25 added: Professional Page Architecture and Route Separation
+- Phase 24 superseded: LinkedIn OIDC conflicts with the later native-login and PDF-only import decisions.
 
 ## Operator Next Steps
 
-- Remaining engineering work follows the validated private-beta contract and security model.
-- No further milestone expansion is required; the milestone is closed and ready for implementation execution under the approved plan.
+- Generate and review the Phase 25 plan before implementation.

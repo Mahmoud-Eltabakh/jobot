@@ -5,8 +5,32 @@
 - **Milestones 1-6** — Phases 1-16 completed; original phase details are preserved in the legacy phase archive.
 - **v7.0 Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Phases 17-18 shipped 2026-10-28; [roadmap archive](milestones/v7.0-ROADMAP.md), [requirements archive](milestones/v7.0-REQUIREMENTS.md), [audit](milestones/v7.0-MILESTONE-AUDIT.md).
 - **v8.0 Production SaaS Foundation** — Completed private-beta readiness milestone covering product contract, security invariants, persistence foundation, workflow design, and launch gates.
+- **v9.0 Official LinkedIn OpenID Connect & Developer Portal Integration** — Active milestone replacing legacy Playwright scraping with official OIDC authentication from the LinkedIn Developer Product Catalog.
 
-## Active Milestone: v8.0 Production SaaS Foundation
+## Active Milestone: v9.0 Official LinkedIn OpenID Connect & Developer Portal Integration
+
+The v9.0 milestone integrates the official "Sign In with LinkedIn using OpenID Connect" (OIDC) product from the LinkedIn Developer Product Catalog (https://developer.linkedin.com/product-catalog), delivering 1-click SSO on login and registration, verified candidate profile account linking, and decommissioning brittle Playwright password submission.
+
+### Phase 24: LinkedIn Developer Portal OpenID Connect & OAuth2 Redesign (Superseded)
+
+- Goal: Replace legacy Playwright headless login and manual li_at cookie scraping with official LinkedIn OpenID Connect.
+- Key outputs: `LinkedInOIDCClient`, `/auth/linkedin/login`, `/auth/linkedin/callback`, SSO buttons on login/register, connected profile status badge in Profile tab, AES-GCM encrypted token persistence, and 100% offline mocked test suite.
+- Exit criteria: Automated tests verify OIDC login, registration, and profile linkage with zero unmocked network sockets.
+- Status: Superseded by the manual LinkedIn PDF-import direction. Do not execute `24-01-PLAN.md`; it remains as historical planning context only.
+
+### Phase 25: Professional Page Architecture and Route Separation
+
+**Goal:** Deliver direct, refresh-safe authenticated workspace pages while preserving the existing HTMX fragment, mutation, API, tenant-isolation, and popup contracts.
+**Requirements**: TBD
+**Depends on:** None
+**Plans:** 3 plans
+
+Plans:
+- [ ] 25-01-PLAN.md — Establish the dashboard shell, canonical navigation, and root compatibility redirect.
+- [ ] 25-02-PLAN.md — Add canonical board and table pages while retaining filter and inspector workflows.
+- [ ] 25-03-PLAN.md — Add queue, profile, and settings pages with route and browser regression coverage.
+
+## Milestone Archive: v8.0 Production SaaS Foundation (Complete)
 
 The v8.0 milestone resolved key product and operational questions before a controlled private-beta launch path was documented and closed.
 
