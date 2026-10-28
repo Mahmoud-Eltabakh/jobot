@@ -171,7 +171,7 @@ Prior evidence from **17-04-SUMMARY.md**, not rerun in Plan 05: **135 passing te
 - [x] Prior browser evidence attributed and actual full regression failures recorded, not passed.
 - [ ] Independent gsd-plan-checker review obtained.
 
-Validation audit (2026-10-28): all 15 task rows map to existing automated test targets. Fresh isolated full suite: 670 passed, 4 existing deprecation warnings. No behavioral coverage gaps were identified. The pre-edit Plan 05 baseline was not captured and cannot be reconstructed; independent plan-checker review remains outstanding. These are retained as process/evidence limitations, not evidence that the planned behaviors lack tests. This audit does not certify full REQ-QUAL-01 comment coverage or refresh the phase verification report.
+Validation audit (2026-10-28): all 15 task rows map to existing automated test targets. Follow-up fixes for CR-05/06 and WR-01/02 add focused regressions for Python-compatible timeout handling, profile-vector preservation after failed upsert, owner-scoped feedback existence checks and fixed OpenAI endpoint selection. The final isolated full suite passed 673 tests with 4 existing deprecation warnings on Python 3.14.7. Python 3.10 itself was not available for execution. No behavioral coverage gaps were identified. The pre-edit Plan 05 baseline was not captured and cannot be reconstructed; independent plan-checker review remains outstanding. These remain process/evidence limitations, not evidence that planned behaviors lack tests. This audit does not certify full REQ-QUAL-01 comment coverage or refresh the phase verification report.
 
 ## Validation Audit 2026-10-28
 
