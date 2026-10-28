@@ -3,7 +3,7 @@ status: complete
 phase: 18-live-model-discovery-for-cloud-providers-and-ollama
 source: [18-01-SUMMARY.md, 18-02-SUMMARY.md, 18-03-SUMMARY.md, 18-04-SUMMARY.md, 18-05-SUMMARY.md]
 started: 2026-10-28T06:24:54+01:00
-updated: 2026-10-28T05:32:36.000Z
+updated: 2026-10-28T06:35:55+01:00
 ---
 
 ## Current Test
@@ -48,8 +48,7 @@ None reported by the user. Pending human checks are not implementation failures.
 ## Automated Evidence
 
 - Latest isolated full suite: `.venv\Scripts\python.exe tests/run_phase17.py tests -q --tb=short` returned 673 passed, 4 existing deprecation warnings on Python 3.14.7. Provider transports were mocked and service sockets blocked.
-- Disposable browser preview rendered eight provider cards and three task assignments. Changing Scoring provider to Gemini rebound its model input to `provider-models-gemini`. Refresh interaction did not complete from the directly loaded fragment, so no browser Refresh/keyboard/accessibility check is claimed.
-- Phase 18 canonical verification: human_needed; live provider/Ollama and full browser acceptance remain pending.
+- Disposable browser preview rendered eight provider cards and three task assignments. Changing Scoring provider to Gemini rebound its model input to `provider-models-gemini`. Refresh interaction did not complete from the directly loaded fragment; the user separately confirmed the browser keyboard/datalist/accessibility check.
+- Phase 18 canonical verification: passed after all four UAT checks were accepted; live listing and Ollama behavior were operator-confirmed in the actual app. No credentials were shared in chat.
 
-Resume with `/gsd-verify-work 18`, starting at the first pending item.
-Milestone v7.0 remains active; do not archive until Phase 18 verification is resolved.
+UAT complete: 4 passed, 0 issues. Milestone v7.0 remains active pending milestone audit/completion.
