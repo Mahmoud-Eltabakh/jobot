@@ -26,9 +26,9 @@ The v9.0 milestone integrates the official "Sign In with LinkedIn using OpenID C
 **Plans:** 3 plans
 
 Plans:
-- [ ] 25-01-PLAN.md — Establish the dashboard shell, canonical navigation, and root compatibility redirect.
-- [ ] 25-02-PLAN.md — Add canonical board and table pages while retaining filter and inspector workflows.
-- [ ] 25-03-PLAN.md — Add queue, profile, and settings pages with route and browser regression coverage.
+- [x] 25-01-PLAN.md — Establish the dashboard shell, canonical navigation, and root compatibility redirect.
+- [x] 25-02-PLAN.md — Add canonical board and table pages while retaining filter and inspector workflows.
+- [x] 25-03-PLAN.md — Add queue, profile, and settings pages with route and browser regression coverage.
 
 ## Milestone Archive: v8.0 Production SaaS Foundation (Complete)
 

@@ -122,13 +122,14 @@ Items acknowledged and deferred at v7.0 close:
 - **2026-09-11**: Completed Phase 16: Added decoupled scraping and evaluator worker loops, bounded parallel AI scoring, runtime concurrency settings, live queue metrics, and full regression coverage for parallel execution. Targeted tests passed.
 - **2026-10-27**: Completed only Plan 17-01: Added native Anthropic/Gemini adapters, safe bounded provider errors, eight-provider defaults, owner-only task resolution and fixed local embedding resolver. Disposable-storage client/authentication tests: 133 passed, 4 warnings. No commits or dependency changes; Phase 17 remains in progress.
 - **2026-10-28**: Executed only Plan 17-05 after Plans 17-01 through 17-04: expanded adapter/vault and authenticated cross-stage/local-vector regressions, repaired cloud-timeout web status mapping after a failing test, and synchronized README/user/contributor documentation. Final focused run: 322 passed, 4 warnings; full suite: 474 passed, 4 failed, 4 warnings. Remaining legacy LinkedIn, scheduler, queue and vector fixtures are recorded in 17-05-SUMMARY and VALIDATION, not broadly rewritten. Prior automated browser evidence is retained without claiming human acceptance. Phase 17 is 5/5 implemented, pending independent verifier/review; milestone v7.0 remains active. No Git mutations, installs, dependency changes or live provider requests.
+- **2026-10-28**: Completed Phase 25 Plans 01-03. Canonical full pages now cover dashboard, jobs board, jobs table, queue, profile, and settings while preserving protected HTMX fragment and mutation routes. Focused page/fragment tests and the disposable localhost-only Playwright run passed. A queue lifecycle case is order-dependent in the combined focused run but passes alone; it was not changed because it is unrelated to page routing. Superseded Phase 24/OIDC worktree changes remain uncommitted and untouched.
 
 ## Current Position
 
-Phase: 25-professional-page-architecture-and-route-separation (planned)
-Plan: 25-01-PLAN.md
-Status: Phase 24 is superseded by the manual PDF-only LinkedIn direction; Phase 25 is ready for execution.
-Last activity: 2026-10-28 — Phase 24 superseded; Phase 25 selected for execution
+Phase: 25-professional-page-architecture-and-route-separation (complete)
+Plan: 25-03-SUMMARY.md
+Status: All three Phase 25 plans are complete. Phase 24 remains superseded by the manual PDF-only LinkedIn direction.
+Last activity: 2026-10-28 — Completed canonical page routes and browser verification for Phase 25
 
 ## Accumulated Context
 
@@ -139,4 +140,4 @@ Last activity: 2026-10-28 — Phase 24 superseded; Phase 25 selected for executi
 
 ## Operator Next Steps
 
-- Generate and review the Phase 25 plan before implementation.
+- Review the Phase 25 implementation and resolve the unrelated queue test ordering issue separately if it remains reproducible.
