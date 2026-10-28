@@ -1,7 +1,7 @@
 ---
 gsd_state_version: "1.0"
 milestone: v7.0
-milestone_name: "Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)"
+milestone_name: "Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Complete)"
 status: Awaiting next milestone
 last_updated: "2026-10-28T07:01:19.762Z"
 last_activity: 2026-10-28
@@ -23,10 +23,10 @@ milestone: v7.0
 
 ## Project Reference
 
-See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
+See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-10-28)
 
 **Core value:** Continuously discover high-relevance job opportunities across multiple platforms and rank them accurately against a candidate's CV using local Ollama AI and adaptive Vector RAG learning, managed through a clean and responsive web dashboard.
-**Current focus:** Milestone 7 (Multi-Provider & Hybrid Local/Cloud AI Routing Engine) has completed Phases 17 and 18, with both canonical verifications passed and all Phase 17/18 UAT checks accepted. Phase 17 passed 30/30 plan truths with zero open security threats and clean code review; Phase 18 passed 15/15 must-haves with zero open security threats and clean code review. Latest isolated suite: 690 passed, 4 existing warnings on Python 3.14.7. Python 3.10 was not available; REQ-QUAL-01 comment coverage remains unmeasured. Phase 17 UI review has one P2 mobile rescore advisory; Phase 18 UI review has three polish advisories and no screenshots. Historical live-service checks for Phases 7, 9 and 11 remain human_needed. Milestone 7 audit/completion/cleanup have not run.
+**Current focus:** Milestone 7 (Multi-Provider & Hybrid Local/Cloud AI Routing Engine) is complete. Phases 17 and 18 passed canonical verification and all Phase 17/18 UAT checks were accepted. Phase 17 passed 30/30 plan truths with zero open security threats and clean code review; Phase 18 passed 15/15 must-haves with zero open security threats and clean code review. Latest isolated suite: 690 passed, 4 existing warnings on Python 3.14.7. Python 3.10 was not available; REQ-QUAL-01 comment coverage remains unmeasured. Phase 17 UI review has one P2 mobile rescore advisory; Phase 18 UI review has three polish advisories and no screenshots. Five historical verification reports (Phases 6, 7, 9, 11 and 13) were acknowledged and deferred; their human-needed checks remain incomplete.
 
 ## Phase Status
 
@@ -64,7 +64,7 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 
 - [x] **Phase 16: Concurrent Background Scraping & Parallel AI Scoring Engine** — Complete (3 plans: 16-01, 16-02, 16-03)
 
-### Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)
+### Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Complete)
 
 - [x] **Phase 17: Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Complete; 5/5 plans; 30/30 plan truths verified; UAT 3/3; clean independent review.
 - [x] **Phase 18: Live Model Discovery for Cloud Providers & Ollama** — Complete; 5/5 plans; 15/15 must-haves verified; UAT 4/4; clean independent review.
@@ -75,9 +75,9 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 |-------|-------|--------|
 | None in active milestone | — | — |
 
-Phases 17 and 18 verification and UAT are resolved. Milestone v7.0 remains active
-until its audit/completion workflow runs. Historical live-service checks for
-Phases 7, 9 and 11 remain recorded above; do not infer those checks from Phase 17/18.
+Phases 17 and 18 verification and UAT are resolved. Milestone v7.0 is archived.
+Five historical verification items were acknowledged and deferred at close; do
+not infer those checks passed from Phase 17/18 results.
 
 ## Deferred Items
 
@@ -93,6 +93,7 @@ Items acknowledged and deferred at v7.0 close:
 
 ## Progress Log
 
+- **2026-10-28**: Archived and closed milestone v7.0 after a clean open-artifact audit. Five historical human-needed verification reports (Phases 6, 7, 9, 11 and 13) remain acknowledged and deferred. The v7.0 roadmap, requirements, audit and phase artifacts are archived; SaaS product scope remains open for discovery.
 - **2026-10-28**: Phase 18 completed after canonical verification passed 15/15 must-haves and all four live-provider/Ollama/browser UAT checks were accepted. Final isolated suite: 690 passed, 4 existing deprecation warnings on Python 3.14.7. Phase 17 and Phase 18 are complete; v7.0 remains active pending milestone audit/completion. Historical live-service checks for Phases 7, 9 and 11 remain human_needed.
 - **2026-10-28**: Phase 17 completed after fresh verification passed 30/30 plan truths, UAT passed 3/3, security review closed 15/15 threats, and independent code review resolved CR-05/06 and WR-01/02. Final isolated suite: 690 passed, 4 existing deprecation warnings on Python 3.14.7. Python 3.10 was not available; REQ-QUAL-01 coverage remains unmeasured. Phase 18 remains active with live-provider/Ollama and browser checks pending; v7.0 remains open.
 - **2026-10-28**: Phase 18 plans 18-01..18-05 implemented. 18-04 added Refresh models, datalist bindings and the server-fragment slots to `templates/components/settings.html`; 18-05 added incident, two-account isolation and sentinel-key leak tests plus USER_MANUAL/CONTRIBUTING sync. Full suite 670 passed (mocked transports). `18-VERIFICATION.md` is human_needed (live provider/Ollama and browser checks). Phase 17 remains verification_deferred_human; milestone v7.0 active. No commits, installs, network or `data/` access.
