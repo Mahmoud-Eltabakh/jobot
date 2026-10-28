@@ -1,11 +1,14 @@
 """Canonical full-page route coverage for the authenticated workspace."""
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db.database import engine
-from app.db.models import Job, JobStatus
+from app.db.models import Job, JobStatus, ScrapeTask, UserProfile, UserSetting
+from app.main import app
 
 
 @pytest.mark.parametrize(
@@ -126,3 +129,103 @@ def test_root_preserves_first_run_registration_redirect(client: TestClient) -> N
 
     assert response.status_code == 303
     assert response.headers["location"] == "/register"
+
+
+def test_job_and_queue_composition_remains_owner_scoped(
+    authenticated_client: TestClient,
+    authenticated_user: dict,
+) -> None:
+    """Canonical job and queue pages compose only the authenticated account's data."""
+    with TestClient(app) as second_client:
+        registration = second_client.post(
+            "/api/auth/register",
+            json={
+                "email": "phase25-second@example.com",
+                "password": "SecondAccountPassword123",
+                "full_name": "Phase 25 Second",
+            },
+        )
+        assert registration.status_code == 200
+        second_user = registration.json()
+
+        with Session(engine) as session:
+            first_job = Job(
+                user_id=authenticated_user["id"], source="linkedin", title="First Job Sentinel",
+                company="First Co", location="Berlin", url="https://example.test/first-job",
+                status=JobStatus.NEW.value, fit_score=91, dedup_hash="phase25-first-job",
+            )
+            second_job = Job(
+                user_id=second_user["id"], source="linkedin", title="Second Job Sentinel",
+                company="Second Co", location="Hamburg", url="https://example.test/second-job",
+                status=JobStatus.NEW.value, fit_score=82, dedup_hash="phase25-second-job",
+            )
+            first_task = ScrapeTask(
+                user_id=authenticated_user["id"], task_type="scrape_query",
+                payload_json=json.dumps({"query": "First Queue Sentinel"}), status="failed",
+            )
+            second_task = ScrapeTask(
+                user_id=second_user["id"], task_type="scrape_query",
+                payload_json=json.dumps({"query": "Second Queue Sentinel"}), status="failed",
+            )
+            session.add_all([first_job, second_job, first_task, second_task])
+            session.commit()
+            session.refresh(first_job)
+            session.refresh(first_task)
+
+        for client, own_job, other_job, own_task, other_task in (
+            (authenticated_client, "First Job Sentinel", "Second Job Sentinel", "First Queue Sentinel", "Second Queue Sentinel"),
+            (second_client, "Second Job Sentinel", "First Job Sentinel", "Second Queue Sentinel", "First Queue Sentinel"),
+        ):
+            assert 'hx-get="/web/views/table"' in client.get("/jobs/table").text
+            assert 'hx-get="/web/views/queue"' in client.get("/queue").text
+            table = client.get("/web/views/table")
+            queue = client.get("/web/views/queue")
+            assert own_job in table.text and other_job not in table.text
+            assert own_task in queue.text and other_task not in queue.text
+
+        assert second_client.get(f"/web/job/{first_job.id}/inspect").status_code == 404
+        assert second_client.delete(f"/web/queue/tasks/{first_task.id}").status_code == 404
+
+
+def test_profile_and_settings_composition_remains_owner_scoped(
+    authenticated_client: TestClient,
+    authenticated_user: dict,
+) -> None:
+    """Canonical profile and settings pages compose only each account's values."""
+    with TestClient(app) as second_client:
+        registration = second_client.post(
+            "/api/auth/register",
+            json={
+                "email": "phase25-profile-second@example.com",
+                "password": "SecondProfilePassword123",
+                "full_name": "Profile Second",
+            },
+        )
+        assert registration.status_code == 200
+        second_user = registration.json()
+
+        with Session(engine) as session:
+            first_profile = session.exec(select(UserProfile).where(
+                UserProfile.user_id == authenticated_user["id"]
+            )).one()
+            second_profile = session.exec(select(UserProfile).where(
+                UserProfile.user_id == second_user["id"]
+            )).one()
+            first_profile.full_name = "First Profile Sentinel"
+            second_profile.full_name = "Second Profile Sentinel"
+            session.add_all([
+                UserSetting(user_id=authenticated_user["id"], key="tailscale_hostname", value_json=json.dumps("first-settings-sentinel")),
+                UserSetting(user_id=second_user["id"], key="tailscale_hostname", value_json=json.dumps("second-settings-sentinel")),
+            ])
+            session.commit()
+
+        for client, own_profile, other_profile, own_setting, other_setting in (
+            (authenticated_client, "First Profile Sentinel", "Second Profile Sentinel", "first-settings-sentinel", "second-settings-sentinel"),
+            (second_client, "Second Profile Sentinel", "First Profile Sentinel", "second-settings-sentinel", "first-settings-sentinel"),
+        ):
+            assert 'hx-get="/web/views/profile"' in client.get("/profile").text
+            assert 'hx-get="/web/views/settings"' in client.get("/settings").text
+            profile = client.get("/web/views/profile")
+            settings = client.get("/web/views/settings")
+            assert own_profile in profile.text and other_profile not in profile.text
+            assert own_setting in settings.text and other_setting not in settings.text
