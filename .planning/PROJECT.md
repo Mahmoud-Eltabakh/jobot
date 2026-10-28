@@ -6,7 +6,14 @@ Jobot is an intelligent, self-hosted job search aggregator and application track
 
 ## Core Value
 
-Continuously discover high-relevance job opportunities across multiple platforms (LinkedIn, Google Jobs, StepStone) and rank them accurately against a candidate's CV using local Ollama AI or external LLM APIs and adaptive Vector RAG learning, managed through a clean, responsive pure Python dashboard.
+Help job seekers find relevant opportunities and move confidently from discovery through application tracking in a reliable, privacy-respecting product.
+
+## Business Context
+
+- **Customer**: Individual job seekers are the provisional first customer segment.
+- **Revenue model**: Start with a private beta without billing; evaluate subscription pricing after validating retention and AI operating costs.
+- **Success metric**: Users can reach a relevant shortlist and keep their applications current; quantitative activation and retention targets remain to be set from beta evidence.
+- **Strategy notes**: No separate business strategy document has been approved.
 
 ## Requirements
 
@@ -29,13 +36,19 @@ Continuously discover high-relevance job opportunities across multiple platforms
 
 ### Active
 
-No new implementation requirement is committed. The next milestone direction is SaaS productization; requirements will be defined after product discovery.
+- [ ] Deliver a hosted private beta for individual job seekers, subject to validation during v8.0 discovery.
+- [ ] Protect each user's profile, job-search data, and generated materials with strict account isolation and clear privacy controls.
+- [ ] Offer managed AI with explicit usage limits and provider/data-processing disclosures for the initial beta.
+- [ ] Establish production operations, including tested backups and restores, monitoring, incident handling, and an availability target.
+- [ ] Preserve the existing self-hosted workflow during the beta unless architecture research identifies a concrete incompatibility.
 
 ### Out of Scope
 
 - Auto-applying / submitting forms directly to employer portals (avoids account bans, captcha failures, and accidental bad submissions).
-- Mandatory paid AI generation — the SaaS privacy, provider, and operating-cost model is not yet decided.
-- Enterprise organizations, team administration, and advanced role-based access — distinguish these from the account-level SaaS tenancy model during next-milestone discovery.
+- Public paid launch and billing implementation — defer until beta demand, retention, and operating costs are understood.
+- Organization/team workspaces, career-coach client management, and employer/recruiter workflows — not part of the provisional individual-user beta.
+- BYO AI keys and multiple selectable hosted AI plans — defer until the managed-AI cost and privacy model is validated.
+- Compliance certification or a data-residency promise — no target market or certification has been selected; applicable privacy obligations still need to be identified.
 
 ## Context
 
@@ -46,9 +59,18 @@ No new implementation requirement is committed. The next milestone direction is 
 - User can freely toggle between local Ollama (for offline privacy and 0 cost) and cloud APIs (for maximum reasoning performance on lower-spec hardware).
 - v7.0 completed multi-provider routing and live model discovery. Production SaaS hosting, tenant boundaries, billing, privacy/compliance, service-level objectives, and launch metrics have not been selected.
 
-## Next Milestone Goals
+## Current Milestone: v8.0 Production SaaS Foundation
 
-Build Jobot into a high-quality production SaaS product. The intended customer segment, core hosted workflow, account/tenant model, AI operating model, pricing, deployment architecture, and release criteria remain open and must be clarified before requirements are committed.
+**Goal:** Prepare a secure, reliable hosted beta that helps individual job seekers discover relevant jobs, generate application materials, and track their search without compromising personal data.
+
+**Target features:**
+- A hosted onboarding and personal-workspace journey for individual job seekers.
+- Account-isolated profiles, job data, AI outputs, and clear data export/deletion controls.
+- Managed AI with explicit per-user usage limits and provider/data-processing disclosures.
+- Production deployment, observability, backups and restore testing, incident handling, and a measurable availability objective.
+- A private-beta release path that preserves the current self-hosted workflow where practical.
+
+**Working assumptions to validate:** Individual job seekers are the initial customer; the first hosted release is a private beta without billing; team workspaces, public paid launch, and BYO keys are deferred. Hosting provider, initial geography, privacy/compliance obligations, AI vendor, numeric SLO, support model, and the degree of self-hosted compatibility remain open pending research and requirements review.
 
 ## Constraints
 
@@ -90,6 +112,8 @@ Build Jobot into a high-quality production SaaS product. The intended customer s
 | Decoupled Dual-Worker Concurrency | Separates network I/O scraping from compute-intensive LLM evaluation into concurrent worker pools with bounded semaphores to maximize throughput while avoiding Ollama OOM and scraper IP blocks | ✓ Validated (Milestone 6) |
 | Owner-Scoped Hybrid AI Routing | Separate encrypted provider credentials and independent pipeline-stage routing while keeping embeddings on owner-local Ollama and provider failures explicit | ✓ Validated (v7.0 Phase 17) |
 | Live Model Discovery Is Advisory | Cache provider model lists per owner and configuration; show warnings without rewriting selected models or implying generation entitlement | ✓ Validated (v7.0 Phase 18) |
+| Hosted SaaS Starts with Individual Workspaces | Keep personal data isolated by account and defer team permissions until user demand validates the added access-control surface | — Provisional for v8.0 |
+| Private Beta Before Monetization | Validate retained use and AI unit costs before committing to billing, subscription tiers, or public launch | — Provisional for v8.0 |
 
 
 ## Evolution
@@ -110,4 +134,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-28 after completing v7.0 and recording SaaS productization as the next milestone direction.*
+*Last updated: 2026-10-28 after starting v8.0 SaaS milestone discovery with provisional assumptions.*
