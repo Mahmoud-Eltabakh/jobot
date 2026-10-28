@@ -1,11 +1,12 @@
 """Web UI endpoints serving Jinja2 templates and HTMX partial views."""
 
 import json
+from datetime import timezone
 from html import escape
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, asc, desc, select
@@ -147,10 +148,11 @@ def apply_job_filters(
 async def login_page(request: Request) -> HTMLResponse:
     """Serve login page."""
     settings = get_settings()
+    error = request.query_params.get("error")
     return templates.TemplateResponse(
         request=request,
         name="login.html",
-        context={"app_name": settings.app_name, "error": None},
+        context={"app_name": settings.app_name, "error": error},
     )
 
 
@@ -173,6 +175,7 @@ async def login_submit(
         )
 
     session_obj = create_user_session(session, user.id)
+    cookie_expires = session_obj.expires_at.replace(tzinfo=timezone.utc) if session_obj.expires_at.tzinfo is None else session_obj.expires_at
     response = HTMLResponse(content="", status_code=303, headers={"Location": "/"})
     response.set_cookie(
         key=COOKIE_NAME,
@@ -180,7 +183,9 @@ async def login_submit(
         httponly=True,
         secure=settings.env.lower() in {"production", "prod"},
         samesite="lax",
+        path="/",
         max_age=7 * 24 * 3600,
+        expires=cookie_expires,
     )
     return response
 
@@ -189,10 +194,11 @@ async def login_submit(
 async def register_page(request: Request) -> HTMLResponse:
     """Serve register page."""
     settings = get_settings()
+    error = request.query_params.get("error")
     return templates.TemplateResponse(
         request=request,
         name="register.html",
-        context={"app_name": settings.app_name, "error": None},
+        context={"app_name": settings.app_name, "error": error},
     )
 
 
@@ -249,6 +255,7 @@ async def register_submit(
         session.commit()
 
     session_obj = create_user_session(session, user.id)
+    cookie_expires = session_obj.expires_at.replace(tzinfo=timezone.utc) if session_obj.expires_at.tzinfo is None else session_obj.expires_at
     response = HTMLResponse(content="", status_code=303, headers={"Location": "/"})
     response.set_cookie(
         key=COOKIE_NAME,
@@ -256,7 +263,9 @@ async def register_submit(
         httponly=True,
         secure=settings.env.lower() in {"production", "prod"},
         samesite="lax",
+        path="/",
         max_age=7 * 24 * 3600,
+        expires=cookie_expires,
     )
     return response
 
@@ -291,15 +300,30 @@ async def index_page(
             return HTMLResponse(content="", status_code=303, headers={"Location": "/register"})
         return HTMLResponse(content="", status_code=303, headers={"Location": "/login"})
 
-    user_profile = get_user_profile(session, current_user.id)
+    return HTMLResponse(content="", status_code=303, headers={"Location": "/dashboard"})
+
+
+def page_context(session: Session, current_user: User, active_page: str) -> dict[str, Any]:
+    """Build the shared context required by complete authenticated page shells."""
+    return {
+        "app_name": get_settings().app_name,
+        "user_profile": get_user_profile(session, current_user.id),
+        "current_user": current_user,
+        "active_page": active_page,
+    }
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render the refresh-safe dashboard page composed from existing fragments."""
     return templates.TemplateResponse(
         request=request,
-        name="index.html",
-        context={
-            "app_name": settings.app_name,
-            "user_profile": user_profile,
-            "current_user": current_user,
-        },
+        name="pages/dashboard.html",
+        context=page_context(session, current_user, "dashboard"),
     )
 
 
@@ -968,6 +992,15 @@ async def get_profile_view(
     cv_raw_text = (user_profile.cv_raw_text or "") if user_profile else ""
     linkedin_raw_text = (user_profile.linkedin_raw_text or "") if user_profile else ""
     has_linkedin_session = bool(user_profile and user_profile.linkedin_session_cookie)
+    if not toast_message:
+        toast_message = request.query_params.get("toast_message")
+    if not error_message:
+        error_message = request.query_params.get("error_message") or request.query_params.get("error")
+
+    from app.auth.linkedin_client import LinkedInOIDCClient
+    is_linkedin_linked = bool(user_profile and (user_profile.linkedin_access_token or user_profile.linkedin_user_id))
+    linkedin_client_configured = LinkedInOIDCClient().is_configured
+
     return templates.TemplateResponse(
         request=request,
         name="components/profile.html",
@@ -984,6 +1017,8 @@ async def get_profile_view(
             "cv_raw_text": cv_raw_text,
             "linkedin_raw_text": linkedin_raw_text,
             "has_linkedin_session": has_linkedin_session,
+            "is_linkedin_linked": is_linkedin_linked,
+            "linkedin_client_configured": linkedin_client_configured,
             "error_message": error_message,
             "toast_message": toast_message,
         },
@@ -1343,6 +1378,42 @@ async def sync_linkedin_form(
     return await get_profile_view(
         request=request, session=session, error_message=error_msg, current_user=current_user
     )
+
+
+@router.post("/web/profile/linkedin/pdf", response_class=HTMLResponse)
+async def import_linkedin_pdf(
+    request: Request,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Store text from a user-exported LinkedIn PDF without contacting LinkedIn or auto-analyzing it."""
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pdf"):
+        return await get_profile_view(request=request, session=session, current_user=current_user,
+                                      error_message="Upload a LinkedIn profile PDF file.")
+    try:
+        from app.ai.cv_parser import CVParser
+
+        raw_text = CVParser().extract_text_from_bytes(await file.read(), filename)
+        if not raw_text:
+            raise ValueError("The PDF did not contain readable text")
+    except ValueError as error:
+        return await get_profile_view(request=request, session=session, current_user=current_user,
+                                      error_message=f"LinkedIn PDF import failed: {error}")
+
+    profile = get_user_profile(session, current_user.id, decrypt=True)
+    if not profile:
+        profile = UserProfile(user_id=current_user.id, full_name=current_user.full_name or "Candidate", updated_at=utc_now())
+        session.add(profile)
+    profile.linkedin_raw_text = raw_text
+    profile.linkedin_session_cookie = None
+    profile.updated_at = utc_now()
+    encrypt_profile(profile, current_user.id)
+    session.add(profile)
+    session.commit()
+    return await get_profile_view(request=request, session=session, current_user=current_user,
+                                  toast_message="LinkedIn PDF imported. Review the extracted text before saving profile details.")
 
 
 def _linkedin_badge(label: str, tone: str) -> HTMLResponse:
