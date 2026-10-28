@@ -1,6 +1,8 @@
 """Canonical full-page route coverage for the authenticated workspace."""
 
 import json
+import sys
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -161,11 +163,11 @@ def test_job_and_queue_composition_remains_owner_scoped(
             )
             first_task = ScrapeTask(
                 user_id=authenticated_user["id"], task_type="scrape_query",
-                payload_json=json.dumps({"query": "First Queue Sentinel"}), status="failed",
+                payload_json=json.dumps({"keywords": "First Queue Sentinel"}), status="failed",
             )
             second_task = ScrapeTask(
                 user_id=second_user["id"], task_type="scrape_query",
-                payload_json=json.dumps({"query": "Second Queue Sentinel"}), status="failed",
+                payload_json=json.dumps({"keywords": "Second Queue Sentinel"}), status="failed",
             )
             session.add_all([first_job, second_job, first_task, second_task])
             session.commit()
@@ -190,8 +192,14 @@ def test_job_and_queue_composition_remains_owner_scoped(
 def test_profile_and_settings_composition_remains_owner_scoped(
     authenticated_client: TestClient,
     authenticated_user: dict,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Canonical profile and settings pages compose only each account's values."""
+    monkeypatch.setitem(
+        sys.modules,
+        "app.auth.linkedin_client",
+        SimpleNamespace(LinkedInOIDCClient=lambda: SimpleNamespace(is_configured=False)),
+    )
     with TestClient(app) as second_client:
         registration = second_client.post(
             "/api/auth/register",

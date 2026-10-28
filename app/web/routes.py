@@ -641,6 +641,8 @@ async def delete_queue_task_web(
 ) -> HTMLResponse:
     """Delete individual task and return refreshed queue view."""
     from app.queue.task_queue import TaskQueue
+    if not owned_by_id(session, ScrapeTask, task_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Task not found")
     TaskQueue.delete_task(session, task_id, current_user.id)
     return await get_queue_view(request=request, session=session, status_filter=status_filter, q=q, current_user=current_user)
 
