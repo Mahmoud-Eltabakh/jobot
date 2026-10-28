@@ -1,5 +1,16 @@
 # Jobot Execution Roadmap
 
+## Milestones
+
+- **Milestones 1-6** — Phases 1-16 completed; original phase details are preserved in the legacy phase archive.
+- **v7.0 Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Phases 17-18 shipped 2026-10-28; [roadmap archive](milestones/v7.0-ROADMAP.md), [requirements archive](milestones/v7.0-REQUIREMENTS.md), [audit](milestones/v7.0-MILESTONE-AUDIT.md).
+- **Next:** Define v8.0 SaaS product scope through milestone discovery.
+
+## Phases
+
+<details>
+<summary>Completed historical phases 1-16 (Milestones 1-6)</summary>
+
 ## Phase 1: Core Foundation & Data Architecture (Complete)
 
 - **Goal**: Establish the Python backend project structure, SQLite models, vector store (ChromaDB), and settings manager.
@@ -150,33 +161,4 @@
   - `16-02-PLAN.md`: Multi-source concurrent scraping (JobSpy + StepStone parallel dispatch) and parallel batch AI job scoring pipeline. — ✓ Complete
   - `16-03-PLAN.md`: Concurrency configuration settings, UI sliders in Settings, live parallel activity metrics in AI Queue View, and verification test suite. — ✓ Complete
 
-## v7.0 Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)
-
-### Phase 17: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Complete)
-
-**Goal:** Decouple AI execution into task-based stages (Scraping, Scoring, Applying) with an encrypted multi-provider credential vault (Ollama, OpenAI, Anthropic, Gemini, Groq, DeepSeek, OpenRouter), local-pinned embeddings, explicit failure transparency, and 1-click cost-saving presets.
-**Requirements:** REQ-HYB-01, REQ-HYB-02, REQ-HYB-03, REQ-HYB-04, REQ-HYB-05, REQ-HYB-06
-- **Status**: Complete; fresh verification passed 31/31 truths, all 3 UAT checks passed, security reports zero open threats, and fresh code review is clean. Latest isolated suite: 673 passed, 4 existing warnings on Python 3.14.7. Python 3.10 was not available; see `17-VERIFICATION.md` and `17-REVIEW.md` for limits.
-- **Plans**:
-- [x] 17-01-PLAN.md
-- [x] 17-02-PLAN.md
-- [x] 17-03-PLAN.md
-- [x] 17-04-PLAN.md
-- [x] 17-05-PLAN.md
-  - `17-01-PLAN.md`: Multi-Provider Adapters & Unified Client Factory (Anthropic, Gemini, Groq, DeepSeek, OpenRouter + task-based `get_ai_client`).
-  - `17-02-PLAN.md`: Multi-Provider Credential Vault, DB Settings & Test API Endpoints.
-  - `17-03-PLAN.md`: Pipeline Dispatch Integration (Scraping, Scoring, Applying) & Local Embeddings Pinning.
-  - `17-04-PLAN.md`: Multi-Provider Settings UI, One-Click Presets & Actionable Error UI.
-  - `17-05-PLAN.md`: Verification & End-to-End Test Suite.
-
-### Phase 18: Live Model Discovery for Cloud Providers & Ollama
-
-**Goal:** Fetch the available model list live from each configured provider's API (Gemini, OpenAI, Anthropic, Groq, DeepSeek, OpenRouter, custom OpenAI-compatible) and from Ollama (local or remote host), and offer them as validated selections in Settings, so stale or wrong model IDs (such as the Gemini 404 and the missing Ollama model) are caught before a task runs.
-**Requirements:** REQ-HYB-07 (model discovery), REQ-HYB-08 (configured-model validation)
-- **Status**: 5/5 plans implemented; 670 tests pass (mocked). Canonical verification is human_needed (live provider/Ollama and browser checks pending); see `18-VERIFICATION.md`. Independent review not run.
-- **Plans**:
-  - `18-01-PLAN.md` (wave 1): Per-provider `list_models()` adapters with pagination/filtering/bounds; Gemini tracer through `POST /api/settings/provider-models`.
-  - `18-02-PLAN.md` (wave 2): `ModelCatalog` owner-scoped TTL cache, refresh cooldown, configured-model validator.
-  - `18-03-PLAN.md` (wave 3): Settings API integration: cached discovery, provider-test model validation, Ollama chat-model + `nomic-embed-text` checks with pull hints, cache-only save warnings.
-  - `18-04-PLAN.md` (wave 4): Settings UI: Refresh models, datalist on provider/task model inputs, accessible "Not in provider list" warnings.
-  - `18-05-PLAN.md` (wave 5): Incident regressions, owner-isolation/leak tests, full-suite run, USER_MANUAL/CONTRIBUTING sync.
+</details>

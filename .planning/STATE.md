@@ -2,15 +2,17 @@
 gsd_state_version: "1.0"
 milestone: v7.0
 milestone_name: "Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)"
-status: unknown
-last_updated: "2026-10-28T05:19:03.308Z"
-state_head: 6aac1f519381973da0ed19b55bc2116a4a6d826e
+status: Awaiting next milestone
+last_updated: "2026-10-28T07:01:19.762Z"
+last_activity: 2026-10-28
+last_activity_desc: Milestone v7.0 completed and archived
+state_head: ef65c9474b1c1e431f08718d1e0b13f279978730
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
   completed_plans: 10
-  percent: 50
+  percent: 100
 current_phase: 18
 current_phase_name: Live Model Discovery for Cloud Providers & Ollama
 ---
@@ -24,7 +26,7 @@ milestone: v7.0
 See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 
 **Core value:** Continuously discover high-relevance job opportunities across multiple platforms and rank them accurately against a candidate's CV using local Ollama AI and adaptive Vector RAG learning, managed through a clean and responsive web dashboard.
-**Current focus:** Milestone 7 (Multi-Provider & Hybrid Local/Cloud AI Routing Engine), Phase 18 (Live Model Discovery for Cloud Providers & Ollama). Phase 17 passed fresh verification (31/31 truths), all three UAT checks, ASVS L1 security review, and fresh independent code review; its latest isolated suite passed 673 tests with 4 existing warnings on Python 3.14.7. Python 3.10 was not available for execution; see Phase 17 artifacts for remaining limits, including one P2 mobile rescore-layout advisory. Phase 18 is implemented but still requires its live-provider/Ollama and browser UAT. Phases 5-14 were gap-closed on 2026-10-28; live-service checks for 7, 9 and 11 remain human_needed. Milestone audit/completion/cleanup have not run.
+**Current focus:** Milestone 7 (Multi-Provider & Hybrid Local/Cloud AI Routing Engine) has completed Phases 17 and 18, with both canonical verifications passed and all Phase 17/18 UAT checks accepted. Phase 17 passed 30/30 plan truths with zero open security threats and clean code review; Phase 18 passed 15/15 must-haves with zero open security threats and clean code review. Latest isolated suite: 690 passed, 4 existing warnings on Python 3.14.7. Python 3.10 was not available; REQ-QUAL-01 comment coverage remains unmeasured. Phase 17 UI review has one P2 mobile rescore advisory; Phase 18 UI review has three polish advisories and no screenshots. Historical live-service checks for Phases 7, 9 and 11 remain human_needed. Milestone 7 audit/completion/cleanup have not run.
 
 ## Phase Status
 
@@ -64,22 +66,35 @@ See: [.planning/PROJECT.md](.planning/PROJECT.md) (updated 2026-09-08)
 
 ### Milestone 7: Multi-Provider & Hybrid Local/Cloud AI Routing Engine (Active)
 
-- [x] **Phase 17: Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Complete; 5/5 plans; verification passed 31/31; UAT 3/3; fresh independent review clean.
-- [ ] **Phase 18: Live Model Discovery for Cloud Providers & Ollama** — 5/5 plans implemented; verification human_needed for live provider/Ollama and browser acceptance. Resume: `/gsd-verify-work 18`.
+- [x] **Phase 17: Multi-Provider & Hybrid Local/Cloud AI Routing Engine** — Complete; 5/5 plans; 30/30 plan truths verified; UAT 3/3; clean independent review.
+- [x] **Phase 18: Live Model Discovery for Cloud Providers & Ollama** — Complete; 5/5 plans; 15/15 must-haves verified; UAT 4/4; clean independent review.
 
 ## Deferred Verification
 
 | Phase | State | Resume |
 |-------|-------|--------|
-| 18 | human_needed | /gsd-verify-work 18 |
+| None in active milestone | — | — |
 
-Phase 17 verification and UAT are resolved. Phase 18 still needs operator-owned
-live provider/Ollama and browser checks; do not archive milestone v7.0 until that
-verification is resolved.
+Phases 17 and 18 verification and UAT are resolved. Milestone v7.0 remains active
+until its audit/completion workflow runs. Historical live-service checks for
+Phases 7, 9 and 11 remain recorded above; do not infer those checks from Phase 17/18.
+
+## Deferred Items
+
+Items acknowledged and deferred at v7.0 close:
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| verification_gaps | 06/06-VERIFICATION.md | human_needed | 2026-10-28 | v7.0 |
+| verification_gaps | 07/07-VERIFICATION.md | human_needed | 2026-10-28 | v7.0 |
+| verification_gaps | 09/09-VERIFICATION.md | human_needed | 2026-10-28 | v7.0 |
+| verification_gaps | 11/11-VERIFICATION.md | human_needed | 2026-10-28 | v7.0 |
+| verification_gaps | 13/13-VERIFICATION.md | human_needed | 2026-10-28 | v7.0 |
 
 ## Progress Log
 
-- **2026-10-28**: Phase 17 completed after fresh verification passed 31/31 truths, UAT passed 3/3, security review closed 15/15 threats, and independent code review resolved CR-05/06 and WR-01/02. Final isolated suite: 673 passed, 4 existing deprecation warnings on Python 3.14.7. Python 3.10 was not available. Phase 18 remains active with live-provider/Ollama and browser checks pending; v7.0 remains open.
+- **2026-10-28**: Phase 18 completed after canonical verification passed 15/15 must-haves and all four live-provider/Ollama/browser UAT checks were accepted. Final isolated suite: 690 passed, 4 existing deprecation warnings on Python 3.14.7. Phase 17 and Phase 18 are complete; v7.0 remains active pending milestone audit/completion. Historical live-service checks for Phases 7, 9 and 11 remain human_needed.
+- **2026-10-28**: Phase 17 completed after fresh verification passed 30/30 plan truths, UAT passed 3/3, security review closed 15/15 threats, and independent code review resolved CR-05/06 and WR-01/02. Final isolated suite: 690 passed, 4 existing deprecation warnings on Python 3.14.7. Python 3.10 was not available; REQ-QUAL-01 coverage remains unmeasured. Phase 18 remains active with live-provider/Ollama and browser checks pending; v7.0 remains open.
 - **2026-10-28**: Phase 18 plans 18-01..18-05 implemented. 18-04 added Refresh models, datalist bindings and the server-fragment slots to `templates/components/settings.html`; 18-05 added incident, two-account isolation and sentinel-key leak tests plus USER_MANUAL/CONTRIBUTING sync. Full suite 670 passed (mocked transports). `18-VERIFICATION.md` is human_needed (live provider/Ollama and browser checks). Phase 17 remains verification_deferred_human; milestone v7.0 active. No commits, installs, network or `data/` access.
 - **2026-10-28**: Remaining code-fixable gaps closed. Queue: running tasks now heartbeat their lease (`TaskQueue.touch_task`, every lease/3), so long tasks are not reclaimed and double-run. Config: `JOBOT_DATA_DIR` now derives DB/Chroma/key paths unless set explicitly. Lifespan wiring (worker/scheduler start, both backfills, failure tolerance) covered by 2 tests with fakes and disposable storage. Phase 15: legacy CV vectors with several accounts are re-keyed only when exactly one profile reproduces the stored summary exactly. 06/15 `covered_digest` recomputed via `verification.fingerprint` (both now fresh). Accepted: global worker pool, no per-user resizing. Full suite 560 passed. 10-VERIFICATION.md has a non-standard `status: gaps_closed` that the status tool rejects (pre-existing, not changed). No commits, installs, network or `data/` access.
 
@@ -110,3 +125,14 @@ verification is resolved.
 - **2026-09-11**: Completed Phase 16: Added decoupled scraping and evaluator worker loops, bounded parallel AI scoring, runtime concurrency settings, live queue metrics, and full regression coverage for parallel execution. Targeted tests passed.
 - **2026-10-27**: Completed only Plan 17-01: Added native Anthropic/Gemini adapters, safe bounded provider errors, eight-provider defaults, owner-only task resolution and fixed local embedding resolver. Disposable-storage client/authentication tests: 133 passed, 4 warnings. No commits or dependency changes; Phase 17 remains in progress.
 - **2026-10-28**: Executed only Plan 17-05 after Plans 17-01 through 17-04: expanded adapter/vault and authenticated cross-stage/local-vector regressions, repaired cloud-timeout web status mapping after a failing test, and synchronized README/user/contributor documentation. Final focused run: 322 passed, 4 warnings; full suite: 474 passed, 4 failed, 4 warnings. Remaining legacy LinkedIn, scheduler, queue and vector fixtures are recorded in 17-05-SUMMARY and VALIDATION, not broadly rewritten. Prior automated browser evidence is retained without claiming human acceptance. Phase 17 is 5/5 implemented, pending independent verifier/review; milestone v7.0 remains active. No Git mutations, installs, dependency changes or live provider requests.
+
+## Current Position
+
+Phase: Milestone v7.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-28 — Milestone v7.0 completed and archived
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

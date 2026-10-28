@@ -23,16 +23,19 @@ Continuously discover high-relevance job opportunities across multiple platforms
 - [x] **Containerization & Orchestration**: Production `Dockerfile`, `docker-compose.yml` with Host Ollama GPU/NPU support, and Kubernetes manifests (`k8s/`). (Phase 6)
 - [x] **Automation Scripts**: Cross-platform automation scripts (`manage.ps1` and `manage.sh`) for building images, running containers, model preloading, and Kubernetes deployments. (Phase 6)
 - [x] **Account Login & Per-User Encrypted Data**: Secure registration/login, revocable sessions, account-scoped data and settings, and user-bound authenticated encryption for sensitive local data. (Milestone 5)
+- [x] **Concurrent Background Scraping & Parallel AI Scoring**: Separate bounded worker pools for scraping and evaluation with configurable concurrency. (Milestone 6)
+- [x] **Multi-Provider Hybrid AI Routing**: Owner-encrypted provider credentials and independent Scraping, Scoring, Applying, and local-only Embeddings routes with explicit failure handling. (v7.0 Phase 17)
+- [x] **Live Model Discovery & Validation**: Owner-scoped provider listings, cache-backed suggestions, non-blocking model warnings, and Ollama model-presence hints. (v7.0 Phase 18)
 
 ### Active
 
-- [ ] Define the next milestone after authenticated multi-user hardening.
+No new implementation requirement is committed. The next milestone direction is SaaS productization; requirements will be defined after product discovery.
 
 ### Out of Scope
 
 - Auto-applying / submitting forms directly to employer portals (avoids account bans, captcha failures, and accidental bad submissions).
-- Forcing cloud subscriptions (system runs 100% self-hosted & offline with Ollama by default, while allowing optional API keys).
-- Multi-tenant enterprise user management (single-user / personal desktop dashboard focus for v1).
+- Mandatory paid AI generation — the SaaS privacy, provider, and operating-cost model is not yet decided.
+- Enterprise organizations, team administration, and advanced role-based access — distinguish these from the account-level SaaS tenancy model during next-milestone discovery.
 
 ## Context
 
@@ -41,6 +44,11 @@ Continuously discover high-relevance job opportunities across multiple platforms
 - Using `python-jobspy` dramatically reduces scraper maintenance for major platforms (LinkedIn, Google Jobs).
 - StepStone uses a dedicated Playwright crawler with anti-bot headers and European layout parsing.
 - User can freely toggle between local Ollama (for offline privacy and 0 cost) and cloud APIs (for maximum reasoning performance on lower-spec hardware).
+- v7.0 completed multi-provider routing and live model discovery. Production SaaS hosting, tenant boundaries, billing, privacy/compliance, service-level objectives, and launch metrics have not been selected.
+
+## Next Milestone Goals
+
+Build Jobot into a high-quality production SaaS product. The intended customer segment, core hosted workflow, account/tenant model, AI operating model, pricing, deployment architecture, and release criteria remain open and must be clarified before requirements are committed.
 
 ## Constraints
 
@@ -48,6 +56,7 @@ Continuously discover high-relevance job opportunities across multiple platforms
 - **Strict Real-Data Policy (Zero Synthetic Mocks in Runtime)**: No fake placeholder responses or synthetic fallback jobs in production/runtime. All scrapers and AI evaluations must execute against live services. When a live service is unreachable or blocked, Jobot raises explicit actionable error diagnostics and UI status alerts instead of masking failures with mock data.
 - **Queue-Driven Execution**: Scraping and AI scoring jobs run through a persistent SQLite async worker queue with state management (`pending`, `in_progress`, `completed`, `failed`) ensuring continuous background execution without dropping tasks.
 - **Execution & Development Environment**: Container-first workflow: Development runs inside Docker containers with source bind-mounts and hot-reloading (`docker-compose.dev.yml`). Production runs via `docker-compose.yml` or Kubernetes.
+- **SaaS Hosting Decision**: No cloud host, tenant architecture, billing provider, or production service-level objective is approved yet; resolve these before implementing the SaaS release path.
 - **Tech Stack**: Pure Python backend and web UI (FastAPI + Jinja2 + HTMX + Tailwind CSS) + SQLite / ChromaDB.
 - **AI Backend**: Pluggable provider interface supporting Local Ollama (`ollama-python`) and OpenAI-compatible client (`openai` / `httpx`) with runtime settings persisted in SQLite and fully editable in the UI.
 - **Scraping Engine**: Python (`python-jobspy` + `playwright-python` for StepStone and authenticated LinkedIn profile ingestion).
@@ -78,6 +87,9 @@ Continuously discover high-relevance job opportunities across multiple platforms
 | Experience, Education & Project Signal Scoring | Uses a candidate's historical skills, educational background, and project work as explicit ranking signals so the fit score reflects the true professional profile | ✓ Validated (Milestone 4) |
 | Meaningful Comment Coverage | Targets 20–30% explanatory comments and docstrings in changed modules while rejecting syntax narration and mechanical padding | Active project convention |
 | User-Scoped Authenticated Encryption | Binds encrypted profile and provider secrets to the owning account, supports key IDs and rotation, and prevents stored secrets from being reflected into HTML | ✓ Validated (Phase 15) |
+| Decoupled Dual-Worker Concurrency | Separates network I/O scraping from compute-intensive LLM evaluation into concurrent worker pools with bounded semaphores to maximize throughput while avoiding Ollama OOM and scraper IP blocks | ✓ Validated (Milestone 6) |
+| Owner-Scoped Hybrid AI Routing | Separate encrypted provider credentials and independent pipeline-stage routing while keeping embeddings on owner-local Ollama and provider failures explicit | ✓ Validated (v7.0 Phase 17) |
+| Live Model Discovery Is Advisory | Cache provider model lists per owner and configuration; show warnings without rewriting selected models or implying generation entitlement | ✓ Validated (v7.0 Phase 18) |
 
 
 ## Evolution
@@ -98,4 +110,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-08 after adding Tailscale SSH Settings and beginning Milestone 5 account and encrypted-data hardening.*
+*Last updated: 2026-10-28 after completing v7.0 and recording SaaS productization as the next milestone direction.*
